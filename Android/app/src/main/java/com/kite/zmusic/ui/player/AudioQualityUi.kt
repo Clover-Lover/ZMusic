@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -36,49 +37,28 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kite.zmusic.data.AudioQuality
+import com.kite.zmusic.ui.icons.ZIconSize
+import com.kite.zmusic.ui.icons.ZIcons
 import com.kite.zmusic.ui.main.MainPalette
 import com.kite.zmusic.ui.main.wallpaperItemChrome
 import kotlin.math.min
 import com.kite.zmusic.i18n.t
 
 /**
- * 竖屏底栏音质钮：与曲谱同框线语言，内里是四柱电平。
+ * 竖屏底栏音质钮：与播放页其余控件同一套 Rounded 实心图标。
  */
 @Composable
 fun TransportQualityIcon(
     modifier: Modifier = Modifier,
-    size: Dp = 15.dp,
+    size: Dp = ZIconSize.Standard,
     tint: Color = Color(0xFFD5DEE8),
 ) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val stroke = Stroke(
-            width = min(w, h) * 0.10f,
-            cap = StrokeCap.Round,
-            join = androidx.compose.ui.graphics.StrokeJoin.Round,
-        )
-        val left = w * 0.14f
-        val right = w * 0.86f
-        val top = h * 0.18f
-        val bottom = h * 0.82f
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(left, top),
-            size = Size(right - left, bottom - top),
-            cornerRadius = CornerRadius(w * 0.08f, w * 0.08f),
-            style = stroke,
-        )
-        drawQualityMeter(
-            color = tint,
-            left = left + w * 0.12f,
-            right = right - w * 0.12f,
-            top = top + h * 0.14f,
-            bottom = bottom - h * 0.12f,
-            lit = 4,
-            total = 4,
-        )
-    }
+    Icon(
+        imageVector = ZIcons.GraphicEq,
+        contentDescription = null,
+        tint = tint,
+        modifier = modifier.size(ZIconSize.snap(size)),
+    )
 }
 
 @Composable

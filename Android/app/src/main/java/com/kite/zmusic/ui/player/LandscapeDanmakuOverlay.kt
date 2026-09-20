@@ -86,7 +86,7 @@ internal fun LandscapeDanmakuOverlay(
     onFullyIdle: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    // playing = playWhenReady：仅用户暂停时冻结；切歌 loadPending 期间继续飞
+    // playing = playWhenReady：暂停时停发新弹幕，场上的继续飞完；切歌 loadPending 期间仍可发
     val context = LocalContext.current
     val app = context.applicationContext as ZMusicApplication
     val densityPx = LocalDensity.current
@@ -258,21 +258,17 @@ internal fun LandscapeDanmakuOverlay(
                 lastNs = now
                 if (dt <= 0f) return@withFrameNanos
 
-                val canSpawn = enabledNow && !obscuredNow && playingNow
-                // 关闭 / 遮挡：继续飞完；仅用户暂停（playWhenReady=false）时冻结
-                val canMove = !enabledNow || obscuredNow || playingNow
+                val canSpawn = DanmakuPlaylist.canSpawn(enabledNow, obscuredNow, playingNow)
                 val vx = baseSpeedPx * speedNow
 
-                if (canMove) {
-                    var i = 0
-                    while (i < flying.size) {
-                        val item = flying[i]
-                        item.x -= vx * dt
-                        if (item.x + item.widthPx <= 0f) {
-                            flying.removeAt(i)
-                        } else {
-                            i++
-                        }
+                var i = 0
+                while (i < flying.size) {
+                    val item = flying[i]
+                    item.x -= vx * dt
+                    if (item.x + item.widthPx <= 0f) {
+                        flying.removeAt(i)
+                    } else {
+                        i++
                     }
                 }
 

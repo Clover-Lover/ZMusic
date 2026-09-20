@@ -1014,7 +1014,7 @@ private fun MoreActionRow(
             imageVector = ZIcons.ChevronRight,
             contentDescription = null,
             tint = MainPalette.Hint,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(22.dp),
         )
     }
 }

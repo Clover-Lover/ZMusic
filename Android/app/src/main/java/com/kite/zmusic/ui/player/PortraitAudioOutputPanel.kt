@@ -209,7 +209,7 @@ private fun OutputChoiceRow(
                 imageVector = ZIcons.Check,
                 contentDescription = null,
                 tint = MainPalette.Accent,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(22.dp),
             )
         }
     }

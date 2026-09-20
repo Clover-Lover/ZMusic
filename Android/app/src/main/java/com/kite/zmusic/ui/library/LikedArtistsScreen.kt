@@ -873,7 +873,7 @@ private fun FollowPersonRow(
                     imageVector = ZIcons.More,
                     contentDescription = t("更多"),
                     tint = MainPalette.Hint,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }

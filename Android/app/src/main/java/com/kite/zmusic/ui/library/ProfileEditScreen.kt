@@ -401,7 +401,7 @@ private fun ProfileEditAvatar(
                     imageVector = ZIcons.Camera,
                     contentDescription = t("更换头像"),
                     tint = MainPalette.Page,
-                    modifier = Modifier.size(15.dp),
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
@@ -520,7 +520,7 @@ internal fun ProfileMoreButton(
             imageVector = ZIcons.Menu,
             contentDescription = t("编辑资料"),
             tint = MainPalette.Ink,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(22.dp),
         )
     }
 }

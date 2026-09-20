@@ -579,6 +579,21 @@ class NcmUserClient(
         )
     }
 
+    /**
+     * 灰色歌曲外链。实现来自兼容 API 所接入的 UnblockNeteaseMusic 等外部开源库，
+     * 不是 ZMusic 自行逆向。仅在用户明确开启「歌曲解灰」后由播放器调用。
+     */
+    suspend fun songUrlMatch(id: Long, cookie: String, source: String? = null): JSONObject =
+        withContext(Dispatchers.IO) {
+            val query = mutableMapOf(
+                "id" to id.toString(),
+                "cookie" to cookie,
+                "timestamp" to ts(),
+            )
+            if (!source.isNullOrBlank()) query["source"] = source.trim()
+            get("/song/url/match", query)
+        }
+
     suspend fun banner(cookie: String, type: Int = 1): JSONObject = withContext(Dispatchers.IO) {
         get(
             "/banner",

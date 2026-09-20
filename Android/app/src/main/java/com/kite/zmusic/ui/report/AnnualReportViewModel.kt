@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.kite.zmusic.data.AnnualReport
 import com.kite.zmusic.data.AnnualReportLogic
 import com.kite.zmusic.data.AnnualReportParse
+import com.kite.zmusic.data.NcmArtistParse
 import com.kite.zmusic.data.NcmJson
 import com.kite.zmusic.data.NcmUserClient
 import com.kite.zmusic.data.SessionRepository
 import java.util.Calendar
 import java.util.TimeZone
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -131,8 +133,25 @@ class AnnualReportViewModel(
                 val json = job.await() ?: return@forEach
                 merged = AnnualReportLogic.merge(merged, AnnualReportParse.fromJson(year, json))
             }
-            merged
+            fillArtistCovers(cookie, merged)
         }
+
+    private suspend fun fillArtistCovers(cookie: String, report: AnnualReport): AnnualReport {
+        val ids = AnnualReportLogic.artistIdsNeedingCover(report.artists)
+        if (ids.isEmpty()) return report
+        val covers = coroutineScope {
+            ids.map { id ->
+                async {
+                    val json = runCatching { userClient.artistDetail(id, cookie) }.getOrNull()
+                        ?: return@async null
+                    val detail = NcmArtistParse.detail(json, id, "")
+                    val url = detail?.coverUrl?.takeIf { !AnnualReportLogic.needsArtistCover(it) }
+                    if (url.isNullOrBlank()) null else id to url
+                }
+            }.awaitAll().filterNotNull().toMap()
+        }
+        return AnnualReportLogic.withArtistCovers(report, covers)
+    }
 
     private fun initialUi(): AnnualReportUi {
         val years = yearsNow()

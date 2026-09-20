@@ -1,9 +1,19 @@
-# 复制为 local.properties 后按需修改（local.properties 勿提交到 Git）
+# 复制为本目录下的 local.properties，填入真实值后再编译。
+# local.properties 已被 .gitignore，请勿提交（与 keystore.properties 同策略）。
+#
+# Android Studio 也会写入 sdk.dir；保留即可。
 # sdk.dir=...
 
-# 网易云兼容 API 基地址（编译期默认），无末尾斜杠
-# 不设则使用构建脚本中的默认值
-# 运行期用户可在 App 内「服务器配置」覆盖并持久化；此处仅影响首次未配置时的默认值。
-# ncm.api.base.url=http://127.0.0.1:3000
-# 本地调试示例（模拟器访问开发机）：
-# ncm.api.base.url=http://10.0.2.2:3000
+# —— 音乐核心（网易云兼容 API）基址，无末尾斜杠 ——
+# 运行期用户仍可在 App「服务器配置」覆盖；此处是编译期默认，给正式用户包用。
+ncm.api.base.url=http://127.0.0.1:3000
+
+# —— 社区服务器（明文 HTTP 主机与端口）——
+community.server.host=127.0.0.1
+community.server.port=80
+
+# —— UApiPro 供应商（多服务共用；当前客户端先用翻译等能力）——
+# baseUrl 为 API 根，无末尾斜杠，例如 https://uapis.cn/api/v1
+uapipro.base.url=https://uapis.cn/api/v1
+# API Key：在控制台申请后填入，勿提交仓库
+uapipro.api.key=

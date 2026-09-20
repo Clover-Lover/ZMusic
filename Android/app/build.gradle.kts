@@ -38,11 +38,40 @@ if (hasReleaseSigning) {
 }
 
 /**
- * 默认固定为线上 API 基址；若本地调试可在 `Android/local.properties` 设置 `ncm.api.base.url`（无末尾 `/`）覆盖。
+ * 音乐核心 / 社区默认地址：只从 `Android/local.properties` 读取（勿入库）。
+ * 缺省时 BuildConfig 为空串，开源克隆不会内置可白嫖的公网地址；复制
+ * `local.properties.example` 填好后再编即可给普通用户发正式包。
  */
 val ncmApiBaseUrl: String =
-    localProperties.getProperty("ncm.api.base.url")?.trim()?.takeIf { it.isNotEmpty() }
-        ?: "http://120.27.244.170:3000"
+    localProperties.getProperty("ncm.api.base.url")?.trim()?.trimEnd('/').orEmpty()
+val communityServerHost: String =
+    localProperties.getProperty("community.server.host")?.trim().orEmpty()
+val communityServerPort: Int =
+    localProperties.getProperty("community.server.port")?.trim()?.toIntOrNull()
+        ?.takeIf { it in 1..65535 }
+        ?: 80
+val uapiProBaseUrl: String =
+    localProperties.getProperty("uapipro.base.url")?.trim()?.trimEnd('/').orEmpty()
+val uapiProApiKey: String =
+    localProperties.getProperty("uapipro.api.key")?.trim().orEmpty()
+
+if (ncmApiBaseUrl.isEmpty() || communityServerHost.isEmpty()) {
+    logger.lifecycle(
+        "ZMusic servers: missing ncm.api.base.url and/or community.server.host in " +
+            "Android/local.properties — BuildConfig defaults are blank. " +
+            "Copy local.properties.example and fill both hosts for a shippable build.",
+    )
+} else {
+    logger.lifecycle("ZMusic servers: music + community defaults loaded from local.properties")
+}
+if (uapiProBaseUrl.isEmpty() || uapiProApiKey.isEmpty()) {
+    logger.lifecycle(
+        "UApiPro: missing uapipro.base.url and/or uapipro.api.key in " +
+            "Android/local.properties — provider defaults are blank until configured.",
+    )
+} else {
+    logger.lifecycle("UApiPro: defaults loaded from local.properties")
+}
 
 android {
     namespace = "com.kite.zmusic"
@@ -52,13 +81,17 @@ android {
         applicationId = "com.kite.zmusic"
         minSdk = 29
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.3.6"
+        versionCode = 14
+        versionName = "1.3.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val escaped = ncmApiBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
-        buildConfigField("String", "NCM_API_BASE_URL", "\"$escaped\"")
+        fun escapeBc(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"")
+        buildConfigField("String", "NCM_API_BASE_URL", "\"${escapeBc(ncmApiBaseUrl)}\"")
+        buildConfigField("String", "COMMUNITY_SERVER_HOST", "\"${escapeBc(communityServerHost)}\"")
+        buildConfigField("int", "COMMUNITY_SERVER_PORT", "$communityServerPort")
+        buildConfigField("String", "UAPIPRO_BASE_URL", "\"${escapeBc(uapiProBaseUrl)}\"")
+        buildConfigField("String", "UAPIPRO_API_KEY", "\"${escapeBc(uapiProApiKey)}\"")
     }
 
     signingConfigs {

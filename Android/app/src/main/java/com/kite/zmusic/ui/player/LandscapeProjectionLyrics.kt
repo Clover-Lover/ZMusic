@@ -150,6 +150,7 @@ import com.kite.zmusic.data.LrcLine
 import com.kite.zmusic.data.LrcParser
 import com.kite.zmusic.data.LyricRoleStyle
 import com.kite.zmusic.data.karaokeWords
+import com.kite.zmusic.data.orderedLyricPair
 import com.kite.zmusic.data.NcmJson
 import com.kite.zmusic.data.NcmLibraryParse
 import com.kite.zmusic.data.PlayerDisplayPrefs
@@ -190,6 +191,9 @@ import com.kite.zmusic.i18n.t
 @Composable
 internal fun LandscapeProjectionLyrics(
     lines: List<LrcLine>,
+    companions: List<LrcLine?> = emptyList(),
+    originalOnTop: Boolean = true,
+    showCompanionOnOthers: Boolean = true,
     positionMs: Long,
     trackDurationMs: Long,
     lineSpacingDp: Float = 10f,
@@ -346,10 +350,16 @@ internal fun LandscapeProjectionLyrics(
 
     // 槽高取各角色字号下的最大行高，保证滚动居中稳定
     val slotHeight = maxOf(38f * playFs, 26f * playedFs, 26f * unplayedFs).dp + linePad * 2
-    val bandHeight = slotHeight * visibleCount
+    val anyCompanion = companions.any { it != null }
+    val playingDual = anyCompanion
+    val othersDual = anyCompanion && showCompanionOnOthers
+    val transExtra = (20f * playFs).dp + 4.dp
+    val playSlotHeight = if (playingDual) slotHeight + transExtra else slotHeight
+    val sideSlotHeight = if (othersDual) playSlotHeight else slotHeight
+    val bandHeight = sideSlotHeight * (visibleCount - 1).coerceAtLeast(0) + playSlotHeight
     val haloBleed = 96.dp
     // 上下垫白，使任意一行（含仅 1～2 行）都能滚到视口绝对垂直中心
-    val slotHeightPx = with(density) { slotHeight.roundToPx() }
+    val slotHeightPx = with(density) { playSlotHeight.roundToPx() }
     val bandHeightPx = with(density) { bandHeight.roundToPx() }
     val centerPadPx = ((bandHeightPx - slotHeightPx) / 2).coerceAtLeast(0)
     val centerPad = with(density) { centerPadPx.toDp() }
@@ -907,13 +917,23 @@ internal fun LandscapeProjectionLyrics(
                                     index == browseCenterIndex &&
                                     !isPlayingLine
                             val selected = inSelect && index in selectedIndices
+                            val dualRow = isPlayingLine && playingDual ||
+                                !isPlayingLine && othersDual
+                            val baseRowHeight = if (dualRow) playSlotHeight else sideSlotHeight
                             val rowHeight = if (geom != null) {
-                                lerpDp(slotHeight, geom.cellHeight, selectT)
+                                lerpDp(baseRowHeight, geom.cellHeight, selectT)
                             } else {
-                                slotHeight
+                                baseRowHeight
+                            }
+                            val companion = when {
+                                isPlayingLine -> companions.getOrNull(index)
+                                showCompanionOnOthers -> companions.getOrNull(index)
+                                else -> null
                             }
                             LandscapeScrollLyricLine(
                                 text = line.text,
+                                companion = companion,
+                                originalOnTop = originalOnTop,
                                 lineKey = index,
                                 isPlayingLine = isPlayingLine,
                                 isBrowseCenter = isBrowseCenter,
@@ -978,6 +998,8 @@ internal val LyricSelectSelectedTextFallback = Color(0xFFFFFFFF)
 @Composable
 internal fun LandscapeScrollLyricLine(
     text: String,
+    companion: LrcLine? = null,
+    originalOnTop: Boolean = true,
     lineKey: Int,
     isPlayingLine: Boolean,
     isBrowseCenter: Boolean,
@@ -1016,6 +1038,10 @@ internal fun LandscapeScrollLyricLine(
         .takeIf { it.alpha > 0.01f }
         ?: LyricSelectSelectedTextFallback
     val selectSelectedBg = lerp(selectUnplayed, Color.White, 0.22f).copy(alpha = 0.22f)
+    val source = lines.getOrNull(lineKey) ?: LrcLine(timeMs = 0L, text = text)
+    val pair = orderedLyricPair(source, companion, originalOnTop)
+    val primaryText = pair.first.text
+    val secondaryText = pair.second?.text
     Box(
         Modifier
             .fillMaxWidth()
@@ -1069,34 +1095,30 @@ internal fun LandscapeScrollLyricLine(
         fun SelectStaticText(alpha: Float) {
             val baseAlpha = lerp(0.46f, 0.50f, st)
             val selectFs = if (selected) playFs else unplayedFs
-            Text(
-                text = text,
-                style = TextStyle(
-                    color = if (selected) {
-                        selectSelectedText.copy(alpha = 0.96f * alpha)
-                    } else {
-                        selectUnplayed.copy(alpha = baseAlpha * alpha)
-                    },
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = if (selected) {
-                        playingStyle.resolvedFontWeight(LyricStyleRole.Playing)
-                    } else {
-                        unplayedStyle.resolvedFontWeight(LyricStyleRole.Unplayed)
-                    },
-                    fontStyle = if (selected) {
-                        playingStyle.resolvedFontStyle()
-                    } else {
-                        unplayedStyle.resolvedFontStyle()
-                    },
-                    fontSize = (16.5f * selectFs).sp,
-                    lineHeight = (26f * selectFs).sp,
-                    letterSpacing = 0.35.sp,
-                    textAlign = TextAlign.Center,
-                ),
+            val color = if (selected) {
+                selectSelectedText.copy(alpha = 0.96f * alpha)
+            } else {
+                selectUnplayed.copy(alpha = baseAlpha * alpha)
+            }
+            LandscapeDualPlainText(
+                upper = primaryText,
+                lower = secondaryText,
+                color = color,
+                fontWeight = if (selected) {
+                    playingStyle.resolvedFontWeight(LyricStyleRole.Playing)
+                } else {
+                    unplayedStyle.resolvedFontWeight(LyricStyleRole.Unplayed)
+                },
+                fontStyle = if (selected) {
+                    playingStyle.resolvedFontStyle()
+                } else {
+                    unplayedStyle.resolvedFontStyle()
+                },
+                fontSizeSp = 16.5f * selectFs,
+                lineHeightSp = 26f * selectFs,
+                letterSpacingSp = 0.35f,
                 maxLines = 2,
-                softWrap = true,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp),
@@ -1108,6 +1130,8 @@ internal fun LandscapeScrollLyricLine(
             LandscapeCenterLyricLine(
                 lines = lines,
                 focus = focus,
+                companion = companion,
+                originalOnTop = originalOnTop,
                 live = live,
                 trackDurationMs = trackDurationMs,
                 animMs = animMs.coerceAtLeast(280),
@@ -1134,21 +1158,17 @@ internal fun LandscapeScrollLyricLine(
         fun LyricBody(mode: Int) {
             when (mode) {
                 1 -> {
-                    Text(
-                        text = text,
-                        style = TextStyle(
-                            color = LyricBrowseSelect.copy(alpha = 0.88f),
-                            fontFamily = FontFamily.SansSerif,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = (16.5f * sideFs).sp,
-                            lineHeight = (26f * sideFs).sp,
-                            letterSpacing = 0.35.sp,
-                            textAlign = TextAlign.Center,
-                        ),
+                    LandscapeDualPlainText(
+                        upper = primaryText,
+                        lower = secondaryText,
+                        color = LyricBrowseSelect.copy(alpha = 0.88f),
+                        fontWeight = FontWeight.SemiBold,
+                        fontStyle = FontStyle.Normal,
+                        fontSizeSp = 16.5f * sideFs,
+                        lineHeightSp = 26f * sideFs,
+                        letterSpacingSp = 0.35f,
                         maxLines = 4,
-                        softWrap = true,
                         overflow = TextOverflow.Clip,
-                        textAlign = TextAlign.Center,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = lineSpacing, horizontal = 10.dp),
@@ -1156,7 +1176,8 @@ internal fun LandscapeScrollLyricLine(
                 }
                 else -> {
                     LandscapeSideLyricLine(
-                        text = text,
+                        text = primaryText,
+                        secondaryText = secondaryText,
                         lineKey = lineKey,
                         played = played,
                         distance = distanceFromPlay.coerceAtMost(3).coerceAtLeast(1),
@@ -1241,6 +1262,8 @@ internal fun LandscapeCenterLyricLine(
     unplayedStyle: LyricRoleStyle = LyricRoleStyle.UnplayedDefault,
     positionMs: Long = 0L,
     clockRunning: Boolean = false,
+    companion: LrcLine? = null,
+    originalOnTop: Boolean = true,
 ) {
     val emphasis by animateFloatAsState(
         targetValue = if (live) 1f else 0f,
@@ -1293,6 +1316,29 @@ internal fun LandscapeCenterLyricLine(
     val fontStyle = if (st > 0.5f) selectStyle else playStyle
     val span = lyricLineSpanMs(lines, focus, trackDurationMs)
     val vPad = if (compact) lineSpacing else 10.dp
+    val source = lines.getOrNull(focus)
+    val pair = if (source != null) {
+        orderedLyricPair(source, companion, originalOnTop)
+    } else {
+        null
+    }
+    val primary = pair?.first
+    val secondary = pair?.second
+    val transFs = lerp(playFs, unplayedFs, st)
+    val secondaryStyle = if (secondary != null) {
+        TextStyle(
+            color = textColor.copy(alpha = textColor.alpha * 0.84f),
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = FontWeight.Medium,
+            fontStyle = fontStyle,
+            fontSize = (18f * transFs).sp,
+            lineHeight = (24f * transFs).sp,
+            letterSpacing = lerp(0.5f, 0.35f, st).sp,
+            textAlign = TextAlign.Center,
+        )
+    } else {
+        null
+    }
 
     Box(
         Modifier
@@ -1303,18 +1349,21 @@ internal fun LandscapeCenterLyricLine(
     ) {
         StableCenterLyricText(
             focus = focus,
-            text = lines.getOrNull(focus)?.text.orEmpty(),
+            text = primary?.text.orEmpty(),
             animMs = animMs,
             lineSpanMs = span,
             fillWidth = fillWidth,
-            maxLines = if (st > 0.5f) 2 else 6,
+            maxLines = if (st > 0.5f) 2 else if (secondary != null) 3 else 6,
             overflow = if (st > 0.5f) TextOverflow.Ellipsis else TextOverflow.Clip,
             instantAppear = instantAppear,
             freezeTransitions = freezeTransitions,
-            words = lines.getOrNull(focus)?.karaokeWords().orEmpty(),
+            words = primary?.karaokeWords().orEmpty(),
             positionMs = positionMs,
             unplayedColor = selectUnplayed.copy(alpha = 0.46f),
             tracking = live && st < 0.5f && clockRunning,
+            secondaryText = secondary?.text,
+            secondaryWords = secondary?.karaokeWords().orEmpty(),
+            secondaryStyle = secondaryStyle,
             style = TextStyle(
                 color = textColor,
                 fontFamily = FontFamily.SansSerif,
@@ -1332,6 +1381,7 @@ internal fun LandscapeCenterLyricLine(
 @Composable
 internal fun LandscapeSideLyricLine(
     text: String,
+    secondaryText: String? = null,
     lineKey: Int,
     played: Boolean,
     distance: Int,
@@ -1373,58 +1423,117 @@ internal fun LandscapeSideLyricLine(
 
     // 槽位固定后侧句文本会原地替换：用淡入淡出避免硬切
     Crossfade(
-        targetState = lineKey to text,
+        targetState = Triple(lineKey, text, secondaryText.orEmpty()),
         animationSpec = tween(
             durationMillis = animMs.coerceIn(200, 420),
             easing = LyricSoftEasing,
         ),
         label = "landSideCrossfade",
         modifier = if (fillWidth) Modifier.fillMaxWidth() else Modifier.wrapContentWidth(),
-    ) { (_, shown) ->
+    ) { (_, shown, shownSecondary) ->
+        val lower = shownSecondary.takeIf { it.isNotEmpty() }
         // 斜体无法插值：已播放层与未播放层按 playedStrength 交叉淡化
         Box(
             modifier = padMod,
             contentAlignment = Alignment.Center,
         ) {
             if (playedStrength < 0.995f) {
-                Text(
-                    text = shown,
-                    style = TextStyle(
-                        color = unplayedColor.copy(alpha = alpha * (1f - playedStrength)),
-                        fontFamily = FontFamily.SansSerif,
-                        fontWeight = unplayedWeight,
-                        fontStyle = unplayedFontStyle,
-                        fontSize = unplayedSizeSp.sp,
-                        lineHeight = (26f * unplayedScale).sp,
-                        letterSpacing = 0.35.sp,
-                        textAlign = TextAlign.Center,
-                    ),
+                LandscapeDualPlainText(
+                    upper = shown,
+                    lower = lower,
+                    color = unplayedColor.copy(alpha = alpha * (1f - playedStrength)),
+                    fontWeight = unplayedWeight,
+                    fontStyle = unplayedFontStyle,
+                    fontSizeSp = unplayedSizeSp,
+                    lineHeightSp = 26f * unplayedScale,
+                    letterSpacingSp = 0.35f,
                     maxLines = 4,
-                    softWrap = true,
                     overflow = TextOverflow.Clip,
                     modifier = if (fillWidth) Modifier.fillMaxWidth() else Modifier.wrapContentWidth(),
                 )
             }
             if (playedStrength > 0.01f) {
-                Text(
-                    text = shown,
-                    style = TextStyle(
-                        color = playedColor.copy(alpha = alpha * playedStrength),
-                        fontFamily = FontFamily.SansSerif,
-                        fontWeight = playedWeight,
-                        fontStyle = playedFontStyle,
-                        fontSize = playedSizeSp.sp,
-                        lineHeight = (26f * playedScale).sp,
-                        letterSpacing = 0.35.sp,
-                        textAlign = TextAlign.Center,
-                    ),
+                LandscapeDualPlainText(
+                    upper = shown,
+                    lower = lower,
+                    color = playedColor.copy(alpha = alpha * playedStrength),
+                    fontWeight = playedWeight,
+                    fontStyle = playedFontStyle,
+                    fontSizeSp = playedSizeSp,
+                    lineHeightSp = 26f * playedScale,
+                    letterSpacingSp = 0.35f,
                     maxLines = 4,
-                    softWrap = true,
                     overflow = TextOverflow.Clip,
                     modifier = if (fillWidth) Modifier.fillMaxWidth() else Modifier.wrapContentWidth(),
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LandscapeDualPlainText(
+    upper: String,
+    lower: String?,
+    color: Color,
+    fontWeight: FontWeight,
+    fontStyle: FontStyle,
+    fontSizeSp: Float,
+    lineHeightSp: Float,
+    letterSpacingSp: Float,
+    maxLines: Int,
+    overflow: TextOverflow,
+    modifier: Modifier = Modifier,
+) {
+    val primary = TextStyle(
+        color = color,
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = fontWeight,
+        fontStyle = fontStyle,
+        fontSize = fontSizeSp.sp,
+        lineHeight = lineHeightSp.sp,
+        letterSpacing = letterSpacingSp.sp,
+        textAlign = TextAlign.Center,
+    )
+    if (lower.isNullOrEmpty()) {
+        Text(
+            text = upper,
+            style = primary,
+            maxLines = maxLines,
+            softWrap = true,
+            overflow = overflow,
+            textAlign = TextAlign.Center,
+            modifier = modifier,
+        )
+        return
+    }
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = upper,
+            style = primary,
+            maxLines = maxLines,
+            softWrap = true,
+            overflow = overflow,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = lower,
+            style = primary.copy(
+                fontSize = (fontSizeSp * 0.88f).sp,
+                lineHeight = (lineHeightSp * 0.88f).sp,
+                fontWeight = FontWeight.Medium,
+            ),
+            maxLines = maxLines,
+            softWrap = true,
+            overflow = overflow,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

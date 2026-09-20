@@ -556,7 +556,7 @@ private fun UserActionRow(
                     imageVector = if (followed) ZIcons.Check else ZIcons.Add,
                     contentDescription = if (followed) t("已关注") else t("关注"),
                     tint = followFg,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(18.dp),
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(

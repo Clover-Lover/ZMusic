@@ -107,7 +107,7 @@ fun HomeScreen(
         widthDp >= 600 -> 3
         else -> 3
     }
-    val openCommunityLogin = rememberCommunityLoginOpener(onPlaySong = onPlaySong)
+    val communityQr = rememberCommunityLoginOpener(onPlaySong = onPlaySong)
 
     val onBanner: (HomeBanner) -> Unit = { b ->
         when (b.targetType) {
@@ -144,7 +144,7 @@ fun HomeScreen(
             onOpenOverlay = onOpenOverlay,
             onPlayTracks = onPlayTracks,
             onBanner = onBanner,
-            onScanCommunity = openCommunityLogin,
+            onScanCommunity = communityQr.openScanner,
             modifier = modifier,
         )
         return
@@ -161,7 +161,7 @@ fun HomeScreen(
             trailing = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     HomeRotationControl(landscape = false)
-                    HomeCommunityScanButton(onClick = openCommunityLogin)
+                    HomeCommunityScanButton(onClick = communityQr.openScanner)
                     Box(
                         Modifier
                             .size(40.dp)

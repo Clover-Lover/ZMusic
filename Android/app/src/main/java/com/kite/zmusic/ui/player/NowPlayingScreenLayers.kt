@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kite.zmusic.ZMusicApplication
 import com.kite.zmusic.data.AudioQuality
+import com.kite.zmusic.data.ChromeGlassMode
 import com.kite.zmusic.data.LrcLine
 import com.kite.zmusic.data.LyricRoleStyle
 import com.kite.zmusic.data.PlayerBackgroundPreset
@@ -59,8 +61,13 @@ import com.kite.zmusic.data.PlayerDisplayPrefs
 import com.kite.zmusic.data.TrackRow
 import com.kite.zmusic.plugin.PluginLookPresent
 import com.kite.zmusic.playback.PlaybackUiState
+import com.kite.zmusic.ui.main.LocalChromeBackdrop
+import com.kite.zmusic.ui.main.LocalChromeGlassStyle
 import com.kite.zmusic.ui.notice.showIslandNotice
 import com.kite.zmusic.ui.theme.TextTheme
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
@@ -95,6 +102,7 @@ internal fun NowPlayingScreenLayers(
     onOpenUser: (Long, String, String?) -> Unit = { _, _, _ -> },
     onPlayInsertSong: (Long) -> Unit = {},
     onOpenPlaylist: (Long, String, String?) -> Unit = { _, _, _ -> },
+    onOpenAlbum: (Long, String, String?) -> Unit = { _, _, _ -> },
     onPlayQueueIndex: (Int) -> Unit,
     onNeedQueueThrough: (Int) -> Unit,
     trackLiked: Boolean,
@@ -196,7 +204,7 @@ internal fun NowPlayingScreenLayers(
     openPortraitComments: () -> Unit,
     openPortraitListen: () -> Unit,
     requestPortraitListen: () -> Unit,
-    openCommunityLogin: () -> Unit,
+    openCommunityScan: () -> Unit,
     openPortraitWiki: () -> Unit,
     openPortraitSettings: () -> Unit,
     openPortraitPoster: () -> Unit,
@@ -225,6 +233,11 @@ internal fun NowPlayingScreenLayers(
     SideEffect {
         expand?.reportLook(expandLook)
     }
+    val needPlayerLiquid =
+        isLandscape && LocalChromeGlassStyle.current.mode == ChromeGlassMode.Liquid
+    val atmosphereBackdrop = rememberLayerBackdrop()
+    val playerContentBackdrop = rememberLayerBackdrop()
+    val playerOverlayBackdrop = rememberCombinedBackdrop(atmosphereBackdrop, playerContentBackdrop)
     Box(
         modifier
             .fillMaxSize()
@@ -236,11 +249,21 @@ internal fun NowPlayingScreenLayers(
                 },
             ),
     ) {
+        CompositionLocalProvider(
+            LocalChromeBackdrop provides if (needPlayerLiquid) playerOverlayBackdrop else null,
+        ) {
         val stageBackdrop = @Composable {
         if (isLandscape) {
             Box(
                 Modifier
                     .fillMaxSize()
+                    .then(
+                        if (needPlayerLiquid) {
+                            Modifier.layerBackdrop(atmosphereBackdrop)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .hazeSource(state = settingsHazeState, zIndex = 0f),
             ) {
                 Box(
@@ -365,6 +388,10 @@ internal fun NowPlayingScreenLayers(
                 LandscapePlayerBody(
                     track = track,
                     lines = lyricLines,
+                    lyricCompanions = lyricCompanions,
+                    originalOnTop = portraitDisplayPrefs.portraitLyricOriginalOnTop,
+                    showCompanionOnOthers =
+                        portraitDisplayPrefs.portraitLyricOthersShowTranslation,
                     positionMs = lyricPos,
                     seekPositionMs = displayPos,
                     isPlaying = state.isPlaying,
@@ -399,6 +426,7 @@ internal fun NowPlayingScreenLayers(
                     onDisplayPrefsChange = onDisplayPrefsChange,
                     onDisplayPrefsFlush = onDisplayPrefsFlush,
                     settingsHazeState = settingsHazeState,
+                    playerLiquidBackdrop = if (needPlayerLiquid) playerContentBackdrop else null,
                     peekNextTrack = state.peekNextTrack,
                     peekPrevTrack = state.peekPrevTrack,
                     notice = state.notice,
@@ -517,6 +545,7 @@ internal fun NowPlayingScreenLayers(
                             closePortraitLyricSelect()
                         },
                     ),
+                    hazeState = settingsHazeState,
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -686,10 +715,8 @@ internal fun NowPlayingScreenLayers(
                         }
                         when (val result = NcmShare.sendImage(context, uri, target)) {
                             NcmShareResult.Opened -> Unit
-                            NcmShareResult.Failed -> context.showIslandNotice(t("分享失败"))
-                            is NcmShareResult.MissingApp ->
-                                context.showIslandNotice(t("未安装%s", result.appName))
-                            else -> context.showIslandNotice(t("分享失败"))
+                            else -> NcmShare.imageResultNotice(target, result)
+                                ?.let { context.showIslandNotice(it) }
                         }
                     }
                 },
@@ -784,7 +811,7 @@ internal fun NowPlayingScreenLayers(
                 PortraitListenTogetherSheet(
                     onClose = { closePortraitListen() },
                     onNeedLogin = { requestPortraitListen() },
-                    onScanJoin = { openCommunityLogin() },
+                    onScanJoin = openCommunityScan,
                     hazeState = settingsHazeState,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -991,6 +1018,7 @@ internal fun NowPlayingScreenLayers(
                     onClose = closePortraitWiki,
                     onPlayInsertSong = onPlayInsertSong,
                     onOpenPlaylist = onOpenPlaylist,
+                    onOpenAlbum = onOpenAlbum,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
@@ -1003,5 +1031,6 @@ internal fun NowPlayingScreenLayers(
         stageBackdrop()
         playerColumn()
         portraitChrome()
+        }
     }
 }

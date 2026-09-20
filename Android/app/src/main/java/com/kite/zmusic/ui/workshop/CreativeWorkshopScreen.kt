@@ -126,7 +126,7 @@ fun CreativeWorkshopScreen(
     val app = LocalContext.current.applicationContext as ZMusicApplication
     val auth by app.workshopAuthStore.session.collectAsStateWithLifecycle()
     val net by app.networkMode.state.collectAsStateWithLifecycle()
-    val openLogin = rememberCommunityLoginOpener(offerWebsite = true, onPlaySong = onPlaySong)
+    val communityQr = rememberCommunityLoginOpener(offerWebsite = true, onPlaySong = onPlaySong)
     val pager = rememberPagerState(initialPage = 0, pageCount = { 2 })
     val scope = rememberCoroutineScope()
     val offline = net.phase == NetworkPhase.Offline
@@ -174,7 +174,7 @@ fun CreativeWorkshopScreen(
                 CatalogTopBar(title = t("创意工坊"), onBack = onBack)
                 WorkshopGate(
                     contentBottomInset = contentBottomInset,
-                    onConfirm = openLogin,
+                    onConfirm = communityQr.openLogin,
                 )
             } else {
                 WorkshopHomeTopBar(
@@ -1213,7 +1213,7 @@ private fun ModuleRow(
                     imageVector = ZIcons.More,
                     contentDescription = t("更多"),
                     tint = MainPalette.Hint,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }

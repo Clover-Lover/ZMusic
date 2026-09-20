@@ -111,7 +111,7 @@ class ListenChatLogicTest {
         assertEquals(true, listenChatIsSelf(echoed, "042"))
         assertEquals(false, listenChatIsSelf(msg(3, "7", "hi"), "42"))
         assertEquals(echoed, retargetListenChatToast(pending, listOf(echoed)))
-        assertEquals(pending, listenChatKeepToastWhileReading(pending, "42"))
+        assertEquals(null, listenChatKeepToastWhileReading(pending, "42"))
         assertEquals(null, listenChatKeepToastWhileReading(msg(3, "7", "hi"), "42"))
     }
 
@@ -149,6 +149,64 @@ class ListenChatLogicTest {
         assertEquals(twenty, listenChatBubbleText(twenty))
         assertEquals("$twenty...", listenChatBubbleText(twenty + "超"))
         assertEquals("hello...", listenChatBubbleText("hello world", 5))
+    }
+
+    @Test
+    fun toastStackCapsAtTwoAndKeepsNewest() {
+        val a = ListenChatToast("r1", msg(1, "7", "hi"))
+        val b = ListenChatToast("r2", msg(2, "7", "again"))
+        val c = msg(3, "42", "third")
+        val stacked = pushListenChatToasts(listOf(a, b), listOf(c))
+        assertEquals(2, stacked.size)
+        assertEquals("r2", stacked.first().key)
+        assertEquals("r3", stacked.last().key)
+        assertEquals("third", stacked.last().msg.text)
+    }
+
+    @Test
+    fun toastRetargetKeepsKeyWhenPendingEchoes() {
+        val pending = ListenChatToast("l-1", msg(-1, "42", "hello"))
+        val echoed = msg(9, "42", "hello")
+        val next = pushListenChatToasts(listOf(pending), listOf(echoed))
+        assertEquals(1, next.size)
+        assertEquals("l-1", next.single().key)
+        assertEquals(9L, next.single().msg.id)
+    }
+
+    @Test
+    fun toastReadingClearsSelfAndOthers() {
+        val mine = ListenChatToast("r1", msg(1, "42", "me"))
+        val other = ListenChatToast("r2", msg(2, "7", "them"))
+        val kept = listenChatKeepToastsWhileReading(listOf(mine, other), "42")
+        assertEquals(emptyList<ListenChatToast>(), kept)
+        assertEquals(listOf(other), dismissListenChatToast(listOf(mine, other), "r1"))
+        val pending = ListenChatToast("l-1", msg(-1, "42", "hello"))
+        val echoed = pending.copy(msg = msg(9, "42", "hello"))
+        assertEquals(emptyList<ListenChatToast>(), dismissListenChatToast(listOf(echoed), "l-1"))
+    }
+
+    @Test
+    fun closingSheetDoesNotReplaySelfBubble() {
+        val mine = msg(-1, "42", "hello")
+        val echoed = msg(9, "42", "hello")
+        assertEquals(
+            null,
+            listenChatSelfToastForClosedSheet(
+                lastSelf = mine,
+                current = emptyList(),
+                overlayed = emptySet(),
+                nowMs = mine.at + 500L,
+            ),
+        )
+        val overlayed = listenChatOverlayedTokens(listOf(mine))
+        assertEquals(true, listenChatIsOverlayed(mine, overlayed))
+        assertEquals(true, listenChatIsOverlayed(echoed, overlayed))
+        assertEquals(
+            emptyList<ListenChatMsg>(),
+            listenChatIncomingOverlay(listOf(echoed), overlayed),
+        )
+        val other = msg(10, "7", "hi")
+        assertEquals(listOf(other), listenChatIncomingOverlay(listOf(echoed, other), overlayed))
     }
 
     @Test
@@ -326,5 +384,75 @@ class ListenChatLogicTest {
         assertEquals("pending", incoming.status)
         assertEquals(60L, incoming.expiresIn)
         assertEquals(null, box.outgoing)
+    }
+
+    @Test
+    fun endingEmptyRoomKeepsPlayingOccupiedRoomPauses() {
+        assertEquals(false, listenShouldPauseOnRoomEnd(0))
+        assertEquals(false, listenShouldPauseOnRoomEnd(1))
+        assertEquals(true, listenShouldPauseOnRoomEnd(2))
+        assertEquals(true, listenShouldPauseOnRoomEnd(3))
+    }
+
+    @Test
+    fun translateCacheHideKeepsTextForReuse() {
+        val m = msg(9, "7", "hello")
+        val shown = putListenChatTranslate(
+            emptyMap(),
+            m,
+            ListenChatTranslateEntry(text = "你好", visible = true),
+        )
+        val hidden = hideListenChatTranslate(shown, m)
+        val entry = listenChatTranslateLookup(hidden, m)!!
+        assertEquals("你好", entry.text)
+        assertEquals(false, entry.visible)
+        val again = putListenChatTranslate(
+            hidden,
+            m,
+            entry.copy(visible = true),
+        )
+        assertEquals(true, listenChatTranslateLookup(again, m)!!.visible)
+    }
+
+    @Test
+    fun translateCacheRetargetsLocalIdToServerId() {
+        val local = msg(-1, "42", "hello")
+        val remote = msg(88, "42", "hello")
+        val cached = putListenChatTranslate(
+            emptyMap(),
+            local,
+            ListenChatTranslateEntry(text = "こんにちは", visible = true),
+        )
+        val next = retargetListenChatTranslations(cached, listOf(local), listOf(remote))
+        assertEquals(null, next[listenChatToastKey(local)])
+        assertEquals("こんにちは", next[listenChatToastKey(remote)]!!.text)
+        assertEquals("こんにちは", listenChatTranslateLookup(next, remote)!!.text)
+    }
+
+    @Test
+    fun replyEncodeDecodeRoundTrip() {
+        val quote = ListenChatReplyQuote(
+            msgId = 9,
+            uid = "7",
+            nickname = "曲",
+            snippet = "hello world",
+        )
+        val wire = encodeListenChatText(quote, "好的")
+        val parsed = parseListenChatText(wire)
+        assertEquals(9L, parsed.reply!!.msgId)
+        assertEquals("7", parsed.reply!!.uid)
+        assertEquals("曲", parsed.reply!!.nickname)
+        assertEquals("hello world", parsed.reply!!.snippet)
+        assertEquals("好的", parsed.body)
+        assertEquals("好的", listenChatVisibleBody(wire))
+    }
+
+    @Test
+    fun bubbleTextUsesVisibleBodyWithoutReplyHeader() {
+        val wire = encodeListenChatText(
+            ListenChatReplyQuote(1, "7", "A", "long original text here"),
+            "short reply",
+        )
+        assertEquals("short reply", listenChatBubbleText(wire))
     }
 }

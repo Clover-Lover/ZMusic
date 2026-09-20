@@ -591,7 +591,7 @@ private fun LandscapeTransportBar(
         }
         TransportHit(ZIcons.SkipNext, "下一首", onNext)
         TransportHit(
-            if (state.trackLiked) ZIcons.Favorite else ZIcons.FavoriteBorder,
+            ZIcons.Favorite,
             if (state.trackLiked) "取消喜欢" else "喜欢",
             onToggleLike,
             tint = if (state.trackLiked) Color(0xFFEC4141) else LyricCurrent,

@@ -11,7 +11,6 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +39,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
@@ -58,10 +58,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -82,6 +79,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.kite.zmusic.R
 import com.kite.zmusic.ui.common.GlassAlertDialog
+import com.kite.zmusic.ui.icons.ZIconSize
+import com.kite.zmusic.ui.icons.ZIcons
 import com.kite.zmusic.ui.theme.MainPalette
 import com.kite.zmusic.i18n.I18n
 import com.kite.zmusic.i18n.t
@@ -754,23 +753,12 @@ internal fun LoginDrillTopBar(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Canvas(Modifier.size(18.dp)) {
-                val stroke = 2.2.dp.toPx()
-                drawLine(
-                    color = Ink,
-                    start = Offset(size.width * 0.62f, size.height * 0.18f),
-                    end = Offset(size.width * 0.28f, size.height * 0.5f),
-                    strokeWidth = stroke,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    color = Ink,
-                    start = Offset(size.width * 0.28f, size.height * 0.5f),
-                    end = Offset(size.width * 0.62f, size.height * 0.82f),
-                    strokeWidth = stroke,
-                    cap = StrokeCap.Round,
-                )
-            }
+            Icon(
+                imageVector = ZIcons.ChevronLeft,
+                contentDescription = null,
+                tint = Ink,
+                modifier = Modifier.size(ZIconSize.Standard),
+            )
         }
         Text(
             text = title,
@@ -1044,48 +1032,22 @@ private fun TextLink(text: String, onClick: () -> Unit) {
 
 @Composable
 private fun LockGlyph() {
-    Canvas(Modifier.size(20.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = 1.5.dp.toPx()
-        drawRoundRect(
-            color = InkSecondary,
-            topLeft = Offset(w * 0.22f, h * 0.42f),
-            size = Size(w * 0.56f, h * 0.46f),
-            cornerRadius = CornerRadius(2.dp.toPx()),
-            style = Stroke(stroke),
-        )
-        drawArc(
-            color = InkSecondary,
-            startAngle = 200f,
-            sweepAngle = 140f,
-            useCenter = false,
-            topLeft = Offset(w * 0.30f, h * 0.10f),
-            size = Size(w * 0.40f, h * 0.42f),
-            style = Stroke(stroke, cap = StrokeCap.Round),
-        )
-    }
+    Icon(
+        imageVector = ZIcons.Lock,
+        contentDescription = null,
+        tint = InkSecondary,
+        modifier = Modifier.size(ZIconSize.Standard),
+    )
 }
 
 @Composable
 private fun EnvelopeGlyph() {
-    Canvas(Modifier.size(20.dp)) {
-        val stroke = 1.5.dp.toPx()
-        val inset = 2.dp.toPx()
-        drawRoundRect(
-            color = InkSecondary,
-            topLeft = Offset(inset, inset + 2.dp.toPx()),
-            size = Size(size.width - inset * 2, size.height - inset * 2 - 2.dp.toPx()),
-            cornerRadius = CornerRadius(1.6.dp.toPx()),
-            style = Stroke(stroke),
-        )
-        val path = Path().apply {
-            moveTo(inset, inset + 2.dp.toPx())
-            lineTo(size.width / 2f, size.height * 0.58f)
-            lineTo(size.width - inset, inset + 2.dp.toPx())
-        }
-        drawPath(path, InkSecondary, style = Stroke(stroke, cap = StrokeCap.Round))
-    }
+    Icon(
+        imageVector = ZIcons.Email,
+        contentDescription = null,
+        tint = InkSecondary,
+        modifier = Modifier.size(ZIconSize.Standard),
+    )
 }
 
 private fun maskPhone(phone: String): String {

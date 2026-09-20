@@ -66,6 +66,7 @@ import com.kite.zmusic.data.LrcLine
 import com.kite.zmusic.data.LyricRoleStyle
 import com.kite.zmusic.data.PlayerDisplayPrefs
 import com.kite.zmusic.data.karaokeWords
+import com.kite.zmusic.data.orderedLyricPair
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -872,13 +873,4 @@ private fun PortraitDualPlainText(
             )
         }
     }
-}
-
-private fun orderedLyricPair(
-    original: LrcLine,
-    translation: LrcLine?,
-    originalOnTop: Boolean,
-): Pair<LrcLine, LrcLine?> {
-    val trans = translation ?: return original to null
-    return if (originalOnTop) original to trans else trans to original
 }

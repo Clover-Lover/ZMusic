@@ -74,7 +74,7 @@ data class ListenTogetherUi(
     val draftSeats: Int = 2,
     val pendingJoinId: String? = null,
     val lastReadChatId: Long = 0L,
-    val chatToast: ListenChatMsg? = null,
+    val chatToasts: List<ListenChatToast> = emptyList(),
     val matching: Boolean = false,
     val matchPeer: ListenPeer? = null,
     val incomingInvite: ListenInvite? = null,
@@ -224,6 +224,9 @@ fun listenAvatarLayout(
     )
 }
 
+/** 空房间（仅房主等待加入）结束一起听时不暂停本机播放；有同伴则仍暂停。 */
+fun listenShouldPauseOnRoomEnd(memberCount: Int): Boolean = memberCount > 1
+
 fun ListenMember.ncmUserId(): Long? =
     uid.trim().toLongOrNull()?.takeIf { it > 0L }
 
@@ -254,10 +257,96 @@ fun retargetListenChatToast(current: ListenChatMsg?, merged: List<ListenChatMsg>
     } ?: current
 }
 
-fun listenChatKeepToastWhileReading(toast: ListenChatMsg?, selfUid: String): ListenChatMsg? {
-    if (toast == null) return null
-    return if (listenChatIsSelf(toast, selfUid)) toast else null
+const val LISTEN_CHAT_TOAST_MAX = 2
+
+data class ListenChatToast(
+    val key: String,
+    val msg: ListenChatMsg,
+)
+
+fun listenChatToastKey(msg: ListenChatMsg): String =
+    if (msg.id < 0L) "l${msg.id}" else "r${msg.id}"
+
+fun retargetListenChatToasts(
+    current: List<ListenChatToast>,
+    merged: List<ListenChatMsg>,
+): List<ListenChatToast> = current.map { item ->
+    item.copy(msg = retargetListenChatToast(item.msg, merged) ?: item.msg)
 }
+
+@Suppress("UNUSED_PARAMETER")
+fun listenChatKeepToastsWhileReading(
+    toasts: List<ListenChatToast>,
+    selfUid: String,
+): List<ListenChatToast> = emptyList()
+
+fun pushListenChatToasts(
+    current: List<ListenChatToast>,
+    incoming: List<ListenChatMsg>,
+    max: Int = LISTEN_CHAT_TOAST_MAX,
+): List<ListenChatToast> {
+    if (incoming.isEmpty()) return current
+    val out = retargetListenChatToasts(current, incoming).toMutableList()
+    for (msg in incoming) {
+        if (out.any { it.msg.id == msg.id && msg.id != 0L }) continue
+        if (
+            msg.id > 0L &&
+            out.any {
+                it.msg.id < 0L &&
+                    listenChatUidEquals(it.msg.uid, msg.uid) &&
+                    it.msg.text == msg.text
+            }
+        ) {
+            continue
+        }
+        out += ListenChatToast(listenChatToastKey(msg), msg)
+    }
+    return if (out.size <= max) out else out.takeLast(max)
+}
+
+fun dismissListenChatToast(
+    current: List<ListenChatToast>,
+    key: String,
+): List<ListenChatToast> = current.filter { it.key != key }
+
+fun dismissListenChatToastById(
+    current: List<ListenChatToast>,
+    id: Long,
+): List<ListenChatToast> = current.filter { it.msg.id != id && it.key != "l$id" && it.key != "r$id" }
+
+@Suppress("UNUSED_PARAMETER")
+fun listenChatKeepToastWhileReading(toast: ListenChatMsg?, selfUid: String): ListenChatMsg? = null
+
+fun listenChatOverlayToken(msg: ListenChatMsg): String {
+    if (msg.id > 0L) return "r${msg.id}"
+    val uid = msg.uid.trim().toLongOrNull()?.toString() ?: msg.uid.trim()
+    return "p$uid|${msg.text}"
+}
+
+fun listenChatOverlayedTokens(
+    msgs: Iterable<ListenChatMsg>,
+    current: Set<String> = emptySet(),
+): Set<String> = current + msgs.map(::listenChatOverlayToken)
+
+fun listenChatIsOverlayed(msg: ListenChatMsg, overlayed: Set<String>): Boolean {
+    if (listenChatOverlayToken(msg) in overlayed) return true
+    val uid = msg.uid.trim().toLongOrNull()?.toString() ?: msg.uid.trim()
+    return "p$uid|${msg.text}" in overlayed
+}
+
+fun listenChatIncomingOverlay(
+    msgs: List<ListenChatMsg>,
+    overlayed: Set<String>,
+): List<ListenChatMsg> = msgs.filterNot { listenChatIsOverlayed(it, overlayed) }
+
+@Suppress("UNUSED_PARAMETER")
+fun listenChatSelfToastForClosedSheet(
+    lastSelf: ListenChatMsg?,
+    current: List<ListenChatToast>,
+    overlayed: Set<String>,
+    nowMs: Long,
+    maxAgeMs: Long = 12_000L,
+): ListenChatMsg? = null
 
 fun listenUnreadChatCount(
     chat: List<ListenChatMsg>,
@@ -309,7 +398,7 @@ fun mergeListenRoomChat(
 }
 
 fun listenChatBubbleText(text: String, maxRunes: Int = 20): String {
-    val t = text.trim()
+    val t = listenChatVisibleBody(text).trim()
     if (t.isEmpty() || maxRunes <= 0) return ""
     val n = t.codePointCount(0, t.length)
     if (n <= maxRunes) return t

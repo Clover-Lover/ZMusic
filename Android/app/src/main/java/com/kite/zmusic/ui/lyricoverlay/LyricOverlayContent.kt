@@ -1,5 +1,6 @@
 package com.kite.zmusic.ui.lyricoverlay
 
+import android.content.res.Configuration
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -127,6 +129,14 @@ fun LyricOverlayContent(
         else -> 10.dp
     }
     val compact = overlayWidth < 200.dp
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val settingsMaxH = if (landscape) {
+        val screenH = LocalConfiguration.current.screenHeightDp.dp
+        val lyricBudget = ((prefs.lineCount.coerceAtLeast(1) * 22) + 16).dp
+        (screenH - lyricBudget - 64.dp).coerceIn(132.dp, 248.dp)
+    } else {
+        Dp.Unspecified
+    }
     val shape = RoundedCornerShape(14.dp)
     val lyricsOnly = prefs.locked || idleChrome
     val showClose = !lyricsOnly
@@ -198,14 +208,30 @@ fun LyricOverlayContent(
                     )
                 }
                 OverlaySettingsReveal(visible = settingsOpen) {
-                    Column(Modifier.fillMaxWidth()) {
+                    Column(
+                        if (landscape) {
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = settingsMaxH)
+                                .clipToBounds()
+                        } else {
+                            Modifier.fillMaxWidth()
+                        },
+                    ) {
                         Spacer(Modifier.height(8.dp))
                         LyricOverlaySettingsPanel(
                             prefs = prefs,
                             onChange = onPrefs,
                             onCenterHorizontally = onCenterHorizontally,
                             compact = compact,
-                            modifier = Modifier.fillMaxWidth(),
+                            landscape = landscape,
+                            modifier = if (landscape) {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f, fill = false)
+                            } else {
+                                Modifier.fillMaxWidth()
+                            },
                         )
                     }
                 }

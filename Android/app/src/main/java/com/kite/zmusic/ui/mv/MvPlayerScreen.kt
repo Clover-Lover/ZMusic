@@ -47,7 +47,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -75,6 +75,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -105,6 +106,7 @@ import com.kite.zmusic.ui.common.GlassActionSheet
 import com.kite.zmusic.ui.common.GlassSheetAction
 import com.kite.zmusic.ui.common.UrlImage
 import com.kite.zmusic.ui.icons.ZIcons
+import com.kite.zmusic.ui.main.LocalChromeBackdrop
 import com.kite.zmusic.ui.main.LocalChromeHaze
 import com.kite.zmusic.ui.common.PredictiveBackAxis
 import com.kite.zmusic.ui.common.predictiveBackLayer
@@ -112,6 +114,7 @@ import com.kite.zmusic.ui.common.rememberPredictiveBackUi
 import com.kite.zmusic.ui.main.MainPalette
 import com.kite.zmusic.ui.main.islandLiquidGlass
 import com.kite.zmusic.ui.main.mainLiquidGlass
+import com.kite.zmusic.ui.main.playerOverlayGlass
 import com.kite.zmusic.ui.orientation.LocalSessionRotationLock
 import com.kite.zmusic.ui.orientation.SessionRotationLockStore
 import com.kite.zmusic.ui.orientation.rememberSystemAutoRotateEnabled
@@ -140,11 +143,13 @@ private val MvChromeBottomIn = fadeIn(tween(220, easing = MvEase)) +
     slideInVertically(tween(300, easing = MvEase)) { it / 3 }
 private val MvChromeBottomOut = fadeOut(tween(160)) +
     slideOutVertically(tween(220, easing = MvEase)) { it / 3 }
+/** 横屏唤醒时顶/底满宽玻璃条的内容区高度（不含系统 inset）。 */
+private val MvLandChromeBarH = 52.dp
 private val MvTopFade = Brush.verticalGradient(
     0f to Color(0x66000000),
     1f to Color.Transparent,
 )
-/** 竖屏 16:9：只压状态栏，不到达画面底边，避免黑带画到下方信息区。 */
+/** 竖屏 16:9：视频已避开状态栏，顶栏 scrim 只压画面上沿。 */
 private val MvWatchTopScrim = Brush.verticalGradient(
     0.00f to Color(0x59000000),
     0.40f to Color(0x29000000),
@@ -199,11 +204,10 @@ fun MvPlayerScreen(
             tempLandscape = false
         }
     }
-    LaunchedEffect(chrome, ui.playWhenReady, seeking, ui.boosting, speedSheet, landscape, sidePanel) {
+    LaunchedEffect(chrome, ui.playWhenReady, seeking, ui.boosting, speedSheet) {
         if (!chrome || !ui.playWhenReady || seeking || ui.boosting || speedSheet) {
             return@LaunchedEffect
         }
-        if (landscape && sidePanel) return@LaunchedEffect
         delay(3_200)
         chrome = false
     }
@@ -275,7 +279,10 @@ fun MvPlayerScreen(
     }
 
     val mvHaze = remember { HazeState() }
-    CompositionLocalProvider(LocalChromeHaze provides mvHaze) {
+    CompositionLocalProvider(
+        LocalChromeHaze provides mvHaze,
+        LocalChromeBackdrop provides backdrop,
+    ) {
     if (landscape) {
         LandscapeMvScene(
             playback = playback,
@@ -311,11 +318,13 @@ fun MvPlayerScreen(
             modifier = rootMod,
         )
     } else {
-        Column(
-            rootMod
-                .fillMaxSize()
-                .background(MainPalette.Page),
-        ) {
+        Column(rootMod.fillMaxSize()) {
+            // 状态栏区域留空：透出主壳壁纸/页面底色，与主页一致；视频从状态栏下开始。
+            Spacer(
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsTopHeight(WindowInsets.statusBars),
+            )
             MvVideoStage(
                 playback = playback,
                 ui = ui,
@@ -415,7 +424,7 @@ private fun LandscapeMvScene(
     onArtist: (MvArtist) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val showChrome = chrome || seeking || sidePanel
+    val showChrome = chrome || seeking
     val mvHaze = LocalChromeHaze.current
     Box(
         modifier
@@ -428,14 +437,15 @@ private fun LandscapeMvScene(
                 animationSpec = tween(340, easing = FastOutSlowInEasing),
                 label = "mvSplit",
             )
-            val closedW = (maxHeight * ratio).coerceAtMost(maxWidth)
-            val openW = maxWidth * 0.62f
-            val videoW = lerp(closedW, openW, t)
+            // 侧栏与左侧舞台互补占满全宽，动画全程贴边，不另做位移以免露缝。
+            val panelW = lerp(0.dp, maxWidth * 0.38f, t)
+            val stageW = maxWidth - panelW
+            val videoW = minOf(stageW, maxHeight * ratio)
             val videoH = videoW / ratio
-            val videoX = lerp((maxWidth - closedW) / 2, 0.dp, t)
+            val videoX = (stageW - videoW) / 2
             val videoY = (maxHeight - videoH) / 2
-            val panelW = lerp(0.dp, maxWidth - openW, t)
-            val chromeW = maxWidth - panelW
+            val chromeW = stageW
+            // 封面 + 视频必须落在同一 layerBackdrop / hazeSource 内，顶底玻璃才能采到真画面。
             Box(
                 Modifier
                     .fillMaxSize()
@@ -446,35 +456,33 @@ private fun LandscapeMvScene(
                         } else {
                             Modifier
                         },
-                    )
-                    .background(Color(0xFF1C1C1E)),
-            ) {
-                UrlImage(
-                    url = coverUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    showPlaceholder = false,
-                )
-            }
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black),
-            )
-            Box(
-                Modifier
-                    .offset(videoX, videoY)
-                    .size(videoW, videoH)
-                    .then(
-                        if (mvHaze != null) {
-                            Modifier.hazeSource(state = mvHaze, zIndex = 1f)
-                        } else {
-                            Modifier
-                        },
                     ),
             ) {
-                MvSurface(playback = playback, modifier = Modifier.fillMaxSize())
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF1C1C1E)),
+                ) {
+                    UrlImage(
+                        url = coverUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        showPlaceholder = false,
+                    )
+                }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                )
+                Box(
+                    Modifier
+                        .offset(videoX, videoY)
+                        .size(videoW, videoH),
+                ) {
+                    MvSurface(playback = playback, modifier = Modifier.fillMaxSize())
+                }
             }
             Box(
                 Modifier
@@ -509,6 +517,7 @@ private fun LandscapeMvScene(
                         title = title,
                         metaLine = metaLine,
                         artists = artists,
+                        haze = mvHaze,
                         backdrop = backdrop,
                         onBack = onBackToPortrait,
                         onArtist = onArtist,
@@ -520,50 +529,35 @@ private fun LandscapeMvScene(
                     enter = MvChromeBottomIn,
                     exit = MvChromeBottomOut,
                 ) {
-                    MvBottomChrome(
+                    MvLandBottom(
                         pos = pos,
                         duration = duration,
                         ui = ui,
-                        seeking = seeking,
-                        liquid = true,
-                        backdrop = backdrop,
+                        haze = mvHaze,
                         onSeekStart = onSeekStart,
                         onSeek = onSeek,
                         onSeekEnd = onSeekEnd,
                         onToggle = { playback.togglePlayPause() },
                         onSpeed = onSpeed,
                         onCycleMode = { playback.cyclePlaybackMode() },
-                        sitOnNav = true,
                         rotation = rotation,
-                        related = {
-                            MvRelatedToggle(
-                                open = sidePanel,
-                                liquid = true,
-                                backdrop = backdrop,
-                                onClick = onToggleSplit,
-                            )
-                        },
+                        relatedOpen = sidePanel,
+                        onRelated = onToggleSplit,
                     )
                 }
                 MvStageStatus(ui = ui)
             }
-            if (panelW > 4.dp) {
+            if (panelW > 0.5.dp) {
                 Box(
                     Modifier
                         .align(Alignment.CenterEnd)
                         .fillMaxHeight()
                         .width(panelW)
-                        .padding(top = 10.dp, end = 10.dp, bottom = 10.dp)
-                        .graphicsLayer {
-                            alpha = t.coerceIn(0f, 1f)
-                            translationX = (1f - t) * 72f
-                        }
                         .mainLiquidGlass(
                             backdrop,
-                            RoundedCornerShape(24.dp),
+                            RectangleShape,
                             Color.White.copy(alpha = 0.46f),
-                        )
-                        .clip(RoundedCornerShape(24.dp)),
+                        ),
                 ) {
                     RelatedMvColumn(
                         items = ui.related,
@@ -587,53 +581,61 @@ private fun MvLandTop(
     title: String,
     metaLine: String,
     artists: List<MvArtist>,
+    haze: HazeState?,
     backdrop: LayerBackdrop,
     onBack: () -> Unit,
     onArtist: (MvArtist) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(start = 8.dp, end = 16.dp, top = 28.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            MvChromeIcon(
-                onClick = onBack,
-                liquid = true,
-                backdrop = backdrop,
-                size = 28.dp,
-                small = true,
-            ) {
-                Icon(
-                    imageVector = ZIcons.Back,
-                    contentDescription = t("返回"),
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-            Column(
+    Column(modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .playerOverlayGlass(
+                    shape = RectangleShape,
+                    haze = haze,
+                    solidColor = Color(0xE612141C),
+                    liquidSurface = MainPalette.glassFill(0.22f),
+                ),
+        ) {
+            Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+            Row(
                 Modifier
-                    .weight(1f)
-                    .padding(start = 8.dp),
+                    .fillMaxWidth()
+                    .height(MvLandChromeBarH)
+                    .padding(start = 4.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = title,
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (metaLine.isNotEmpty()) {
+                MvPlainIcon(onClick = onBack) {
+                    Icon(
+                        imageVector = ZIcons.Back,
+                        contentDescription = t("返回"),
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .padding(start = 4.dp),
+                ) {
                     Text(
-                        text = metaLine,
-                        color = Color.White.copy(alpha = 0.78f),
-                        fontSize = 10.sp,
+                        text = title,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (metaLine.isNotEmpty()) {
+                        Text(
+                            text = metaLine,
+                            color = Color.White.copy(alpha = 0.78f),
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -642,8 +644,102 @@ private fun MvLandTop(
                 artists = artists,
                 backdrop = backdrop,
                 onArtist = onArtist,
-                modifier = Modifier.padding(top = 10.dp),
+                modifier = Modifier.padding(start = 12.dp, end = 16.dp, top = 10.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun MvLandBottom(
+    pos: Long,
+    duration: Long,
+    ui: MvUiState,
+    haze: HazeState?,
+    onSeekStart: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onSeekEnd: () -> Unit,
+    onToggle: () -> Unit,
+    onSpeed: () -> Unit,
+    onCycleMode: () -> Unit,
+    rotation: @Composable () -> Unit,
+    relatedOpen: Boolean,
+    onRelated: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .playerOverlayGlass(
+                shape = RectangleShape,
+                haze = haze,
+                solidColor = Color(0xE612141C),
+                liquidSurface = MainPalette.glassFill(0.22f),
+            ),
+    ) {
+        // 高度只包控件；底对齐屏幕自然侵入小白条，勿把 nav inset 加进条高（会在控件上方留空）。
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(MvLandChromeBarH)
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MvPlainIcon(onClick = onToggle) {
+                Icon(
+                    imageVector = if (ui.playWhenReady) ZIcons.Pause else ZIcons.Play,
+                    contentDescription = if (ui.playWhenReady) t("暂停") else t("播放"),
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            Column(
+                Modifier
+                    .weight(1f)
+                    .padding(horizontal = 6.dp),
+            ) {
+                MvScrubber(
+                    positionMs = pos,
+                    durationMs = duration,
+                    onSeekStart = onSeekStart,
+                    onSeek = onSeek,
+                    onSeekEnd = onSeekEnd,
+                )
+                Row(Modifier.fillMaxWidth()) {
+                    Text(formatMs(pos), color = Color.White.copy(alpha = 0.88f), fontSize = 10.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text(formatMs(duration), color = Color.White.copy(alpha = 0.88f), fontSize = 10.sp)
+                }
+            }
+            Text(
+                text = if (ui.speed == 1f) t("倍速") else "${trimSpeed(ui.speed)}x",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onSpeed,
+                    )
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            )
+            PlaybackModeControl(
+                mode = ui.playbackMode,
+                onClick = onCycleMode,
+                circleSize = 32.dp,
+                tint = Color.White,
+                glyphFraction = 0.68f,
+            )
+            rotation()
+            MvPlainIcon(onClick = onRelated) {
+                Icon(
+                    imageVector = if (relatedOpen) ZIcons.Close else ZIcons.RelatedMv,
+                    contentDescription = if (relatedOpen) t("收起相关 MV") else t("相关 MV"),
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
     }
 }
@@ -867,12 +963,11 @@ private fun MvVideoStage(
             enter = MvChromeTopIn,
             exit = MvChromeTopOut,
         ) {
-            val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             Box(Modifier.fillMaxWidth()) {
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(topInset + 52.dp)
+                        .height(52.dp)
                         .background(MvWatchTopScrim),
                 )
                 MvWatchTopBar(onBack = onBack)
@@ -902,16 +997,14 @@ private fun MvVideoStage(
                 )
             }
         } else {
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth(),
+            // 竖屏：进度条与自定义控件同进同出，拖动时保持可见。
+            AnimatedVisibility(
+                visible = chrome || seeking,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = MvChromeBottomIn,
+                exit = MvChromeBottomOut,
             ) {
-                AnimatedVisibility(
-                    visible = chrome,
-                    enter = MvChromeBottomIn,
-                    exit = MvChromeBottomOut,
-                ) {
+                Column(Modifier.fillMaxWidth()) {
                     MvWatchDock(
                         pos = pos,
                         duration = duration,
@@ -923,15 +1016,14 @@ private fun MvVideoStage(
                         onCycleMode = { playback.cyclePlaybackMode() },
                         rotation = rotation,
                     )
+                    MvScrubber(
+                        positionMs = pos,
+                        durationMs = duration,
+                        onSeekStart = onSeekStart,
+                        onSeek = onSeek,
+                        onSeekEnd = onSeekEnd,
+                    )
                 }
-                MvScrubber(
-                    positionMs = pos,
-                    durationMs = duration,
-                    onSeekStart = onSeekStart,
-                    onSeek = onSeek,
-                    onSeekEnd = onSeekEnd,
-                    showThumb = chrome || seeking,
-                )
             }
         }
         if (ui.loading && ui.positionMs <= 0L && ui.error == null) {
@@ -973,7 +1065,6 @@ private fun MvWatchTopBar(
     Row(
         modifier
             .fillMaxWidth()
-            .statusBarsPadding()
             .padding(start = 4.dp, end = 8.dp, top = 2.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1202,7 +1293,7 @@ private fun MvTopBar(
                 imageVector = ZIcons.Back,
                 contentDescription = t("返回"),
                 tint = Color.White,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(18.dp),
             )
         }
         Column(
@@ -1269,7 +1360,7 @@ private fun MvBottomChrome(
                 imageVector = if (ui.playWhenReady) ZIcons.Pause else ZIcons.Play,
                 contentDescription = if (ui.playWhenReady) t("暂停") else t("播放"),
                 tint = Color.White,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(18.dp),
             )
         }
         Column(
@@ -1443,29 +1534,6 @@ private fun MvScrubber(
                     .background(Color.White),
             )
         }
-    }
-}
-
-@Composable
-private fun MvRelatedToggle(
-    open: Boolean,
-    liquid: Boolean,
-    backdrop: LayerBackdrop,
-    onClick: () -> Unit,
-) {
-    MvChromeIcon(
-        onClick = onClick,
-        liquid = liquid,
-        backdrop = backdrop,
-        size = 28.dp,
-        small = true,
-    ) {
-        Icon(
-            imageVector = if (open) ZIcons.Close else ZIcons.RelatedMv,
-            contentDescription = if (open) t("收起相关 MV") else t("相关 MV"),
-            tint = Color.White,
-            modifier = Modifier.size(16.dp),
-        )
     }
 }
 

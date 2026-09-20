@@ -1,6 +1,7 @@
 package com.kite.zmusic.data
 
 import android.content.Context
+import android.content.res.Configuration
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -261,4 +262,59 @@ internal fun overlayWidthPercentFromStored(raw: Int, screenWidthDp: Float): Int 
     if (raw in min..max) return raw
     if (raw <= 0 || screenWidthDp <= 0f) return fallback
     return ((raw / screenWidthDp) * 100f).roundToInt().coerceIn(min, max)
+}
+
+/**
+ * 悬浮窗可用屏尺寸：与当前朝向对齐。
+ * Application / 部分 OEM 的 WindowMetrics 在横屏仍回报竖屏短边，这里按 orientation 取长短边。
+ */
+internal fun overlayDisplaySize(
+    boundsW: Int,
+    boundsH: Int,
+    orientation: Int,
+): Pair<Int, Int> {
+    val a = boundsW.coerceAtLeast(1)
+    val b = boundsH.coerceAtLeast(1)
+    val shortSide = minOf(a, b)
+    val longSide = maxOf(a, b)
+    return when (orientation) {
+        Configuration.ORIENTATION_LANDSCAPE -> longSide to shortSide
+        Configuration.ORIENTATION_PORTRAIT -> shortSide to longSide
+        else -> a to b
+    }
+}
+
+internal fun overlayDefaultX(displayW: Int): Int =
+    (displayW.coerceAtLeast(1) * 0.12f).roundToInt()
+
+internal fun overlayDefaultY(displayH: Int): Int =
+    (displayH.coerceAtLeast(1) * 0.18f).roundToInt()
+
+/** 按参考屏尺寸的同等百分比映射到新屏。未设置时用 [fallback]。 */
+internal fun overlayRemapCoord(
+    pos: Int,
+    ref: Int,
+    newSize: Int,
+    unset: Int = LyricOverlayPrefs.UNSET,
+    fallback: Int,
+): Int {
+    if (pos == unset) return fallback
+    val dest = newSize.coerceAtLeast(1)
+    if (ref <= 0) return pos
+    return (pos.toLong() * dest / ref).toInt()
+}
+
+internal fun overlayFixedWidthPx(displayW: Int, widthPercent: Int): Int {
+    val avail = displayW.coerceAtLeast(1)
+    val pct = widthPercent.coerceIn(
+        LyricOverlayPrefs.WIDTH_PERCENT_MIN,
+        LyricOverlayPrefs.WIDTH_PERCENT_MAX,
+    )
+    return ((avail.toLong() * pct) / 100L).toInt().coerceIn(1, avail)
+}
+
+internal fun overlayClampX(x: Int, windowW: Int, displayW: Int): Int {
+    val avail = displayW.coerceAtLeast(1)
+    val w = windowW.coerceIn(1, avail)
+    return x.coerceIn(0, (avail - w).coerceAtLeast(0))
 }

@@ -1,12 +1,11 @@
 namespace ZMusic.Config;
 
 /// <summary>
-/// NeteaseCloudMusicApi base URL. Default matches Android; override via env ZMUSIC_NCM_API_BASE_URL.
+/// NeteaseCloudMusicApi base URL.
+/// Override via env <c>ZMUSIC_NCM_API_BASE_URL</c> or runtime; no public IP is baked into the repo.
 /// </summary>
 public static class NcmApiConfig
 {
-    public const string DefaultBaseUrl = "http://120.27.244.170:3000";
-
     private static string? _runtimeBaseUrl;
 
     public static string BaseUrl
@@ -24,7 +23,7 @@ public static class NcmApiConfig
                 return fromEnv.Trim().TrimEnd('/');
             }
 
-            return DefaultBaseUrl;
+            return string.Empty;
         }
     }
 

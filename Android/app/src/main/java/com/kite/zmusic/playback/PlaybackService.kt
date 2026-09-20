@@ -71,6 +71,7 @@ class PlaybackService : MediaSessionService() {
             realtimeCacheStore = app.realtimeCacheStore,
             realtimeCache = app.realtimeCache,
             persistentPlaybackStore = app.persistentPlaybackStore,
+            privacyStore = app.privacyStore,
             userClient = app.ncmUserClient,
             audioOutputController = app.audioOutputController,
             fmModeStore = app.personalFmModeStore,

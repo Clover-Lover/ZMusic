@@ -695,7 +695,7 @@ private fun SpaceTopBar(
                 imageVector = ZIcons.Close,
                 contentDescription = t("退出用户空间"),
                 tint = Color.White,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(22.dp),
             )
         }
         Row(
@@ -734,7 +734,7 @@ private fun SpaceTopBar(
                         imageVector = ZIcons.HideImage,
                         contentDescription = t("恢复默认背景"),
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
             }
@@ -746,7 +746,7 @@ private fun SpaceTopBar(
                     imageVector = ZIcons.Wallpaper,
                     contentDescription = t("设置背景"),
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }

@@ -24,8 +24,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +56,7 @@ import com.kite.zmusic.plugin.PluginSurfaces
 import com.kite.zmusic.plugin.PluginUiTarget
 import com.kite.zmusic.ui.common.UrlImage
 import com.kite.zmusic.ui.common.UrlImageCache
+import com.kite.zmusic.ui.icons.ZIcons
 import com.kite.zmusic.ui.plugin.pluginSurface
 import com.kite.zmusic.ui.theme.MainPalette
 import com.kite.zmusic.ui.theme.TextTheme
@@ -65,7 +68,7 @@ private val WikiCoverSize = 86.dp
 
 /**
  * 竖屏黑胶上滑盖住的歌曲百科。舞台色 + onPhoto / player token，跟随插件主题。
- * 顶部为 `<` 顺时针 90° 的向上尖角，点按或系统返回回到黑胶。
+ * 顶部为 `<` 顺时针 90° 的向上尖角；点按、系统返回，或「已在顶部再下拉」退回黑胶。
  */
 @Composable
 internal fun PortraitSongWikiOverlay(
@@ -75,6 +78,7 @@ internal fun PortraitSongWikiOverlay(
     onClose: () -> Unit,
     onPlayInsertSong: (Long) -> Unit,
     onOpenPlaylist: (Long, String, String?) -> Unit,
+    onOpenAlbum: (Long, String, String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -99,15 +103,26 @@ internal fun PortraitSongWikiOverlay(
     val stage = TextTheme.PlayerStage
     val card = TextTheme.PlayerPlayFill
     val accent = TextTheme.Accent
+    val listState = rememberLazyListState()
+    val trackAlbumFallback = remember(track.id, track.album, track.artists, track.coverUrl) {
+        track.album?.takeIf { it.isNotBlank() }?.let { name ->
+            SongWikiCoverItem(
+                id = 0L,
+                title = name,
+                subtitle = track.artists,
+                coverUrl = track.coverUrl,
+            )
+        }
+    }
 
     Column(
         modifier
             .fillMaxSize()
             .background(stage)
-            .nowPlayingBlankGestures(
+            .wikiTopDownDismiss(
                 dismissThresholdPx = dismissSwipeThresholdPx,
-                onTap = null,
-                onSwipeDown = onClose,
+                atTop = { !listState.canScrollBackward },
+                onDismiss = onClose,
             ),
     ) {
         Spacer(
@@ -169,7 +184,8 @@ internal fun PortraitSongWikiOverlay(
             }
             else -> {
                 val wiki = page
-                if (wiki == null || wiki.isEmpty) {
+                val albumItem = wiki?.album ?: trackAlbumFallback
+                if ((wiki == null || wiki.isEmpty) && albumItem == null) {
                     Box(
                         Modifier
                             .fillMaxWidth()
@@ -181,6 +197,7 @@ internal fun PortraitSongWikiOverlay(
                     return@Column
                 }
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -197,10 +214,28 @@ internal fun PortraitSongWikiOverlay(
                             track = track,
                             titleColor = title,
                             subtitleColor = subtitle,
+                            showAlbumLine = albumItem == null,
                             modifier = Modifier.padding(horizontal = 20.dp),
                         )
                     }
-                    if (wiki.hasInfo) {
+                    if (albumItem != null) {
+                        item(key = "wiki-album-${track.id}-${albumItem.id}") {
+                            WikiAlbumSection(
+                                item = albumItem,
+                                titleColor = title,
+                                subtitleColor = subtitle,
+                                metaColor = meta,
+                                cardColor = card,
+                                onOpen = if (albumItem.id > 0L) {
+                                    { onOpenAlbum(albumItem.id, albumItem.title, albumItem.coverUrl) }
+                                } else {
+                                    null
+                                },
+                                modifier = Modifier.padding(horizontal = 20.dp),
+                            )
+                        }
+                    }
+                    if (wiki != null && wiki.hasInfo) {
                         item(key = "wiki-info-${track.id}") {
                             WikiInfoCard(
                                 page = wiki,
@@ -213,7 +248,7 @@ internal fun PortraitSongWikiOverlay(
                             )
                         }
                     }
-                    if (wiki.similar.isNotEmpty()) {
+                    if (wiki != null && wiki.similar.isNotEmpty()) {
                         item(key = "wiki-similar-${track.id}") {
                             WikiCoverStripSection(
                                 title = t("相似歌曲"),
@@ -228,7 +263,7 @@ internal fun PortraitSongWikiOverlay(
                             )
                         }
                     }
-                    if (wiki.playlists.isNotEmpty()) {
+                    if (wiki != null && wiki.playlists.isNotEmpty()) {
                         item(key = "wiki-playlist-${track.id}") {
                             WikiCoverStripSection(
                                 title = t("相关歌单"),
@@ -261,6 +296,7 @@ private fun WikiTrackHeader(
     track: TrackRow,
     titleColor: Color,
     subtitleColor: Color,
+    showAlbumLine: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -297,14 +333,105 @@ private fun WikiTrackHeader(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            track.album?.takeIf { it.isNotBlank() }?.let { album ->
-                Spacer(Modifier.height(2.dp))
+            if (showAlbumLine) {
+                track.album?.takeIf { it.isNotBlank() }?.let { album ->
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = album,
+                        color = subtitleColor.copy(alpha = 0.78f),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WikiAlbumSection(
+    item: SongWikiCoverItem,
+    titleColor: Color,
+    subtitleColor: Color,
+    metaColor: Color,
+    cardColor: Color,
+    onOpen: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val clickable = onOpen != null
+    Column(
+        modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = t("所属专辑"),
+            color = titleColor,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.SansSerif,
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(cardColor)
+                .then(
+                    if (onOpen != null) {
+                        Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onOpen,
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            UrlImage(
+                url = item.coverUrl,
+                contentDescription = item.title,
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MainPalette.Placeholder)
+                    .pluginSurface(
+                        PluginSurfaces.ALBUM_COVER,
+                        PluginUiTarget.album(item.id, item.title, item.coverUrl, item.subtitle),
+                    ),
+                contentScale = ContentScale.Crop,
+                maxPx = UrlImageCache.THUMB_MAX_PX,
+            )
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = album,
-                    color = subtitleColor.copy(alpha = 0.78f),
-                    fontSize = 12.sp,
-                    maxLines = 1,
+                    text = item.title,
+                    color = titleColor,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                )
+                if (item.subtitle.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = item.subtitle,
+                        color = subtitleColor,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (clickable) {
+                Icon(
+                    imageVector = ZIcons.ChevronRight,
+                    contentDescription = t("所属专辑"),
+                    tint = metaColor,
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }

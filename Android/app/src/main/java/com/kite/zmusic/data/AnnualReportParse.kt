@@ -10,7 +10,7 @@ internal object AnnualReportParse {
     )
     private val CoverKeys = listOf(
         "picUrl", "coverUrl", "coverImgUrl", "imgUrl", "imageUrl", "avatarUrl",
-        "img1v1Url", "picurl", "cover",
+        "img1v1Url", "picurl", "cover", "avatar", "headPic", "coverImg",
     )
     private val IdKeys = listOf("id", "songId", "songid", "resourceId", "resId")
     private val ArtistIdKeys = listOf("id", "artistId", "artistid")
@@ -204,11 +204,12 @@ internal object AnnualReportParse {
         if (!looks && !obj.has("picUrl") && !obj.has("img1v1Url")) return null
         if (obj.has("userId") && obj.has("nickname") && !looks) return null
         val id = longOf(obj, *ArtistIdKeys.toTypedArray()) ?: 0L
-        if (!looks && id <= 0L) return null
+        val cover = coverOf(obj)
+        if (id <= 0L && cover == null) return null
         return AnnualArtist(
             id = id,
             name = name,
-            coverUrl = coverOf(obj),
+            coverUrl = cover,
             playCount = longOf(obj, *PlayKeys.toTypedArray()) ?: 0L,
         )
     }
@@ -254,14 +255,18 @@ internal object AnnualReportParse {
 
     private fun coverOf(obj: JSONObject): String? {
         for (key in CoverKeys) {
-            httpUrl(obj.optString(key, "")).let { if (it != null) return it }
+            NcmLibraryParse.ncmHttpsImage(obj.optString(key, "")).let { if (it != null) return it }
+        }
+        longOf(obj, "picId", "img1v1Id", "coverId")?.let { id ->
+            if (id > 1_000_000L) {
+                NcmLibraryParse.ncmPicUrlFromId(id)?.let { return it }
+            }
         }
         obj.optJSONObject("al")?.let { album ->
-            httpUrl(album.optString("picUrl", "")).let { if (it != null) return it }
-            httpUrl(album.optString("coverUrl", "")).let { if (it != null) return it }
+            coverOf(album)?.let { return it }
         }
         obj.optJSONObject("album")?.let { album ->
-            httpUrl(album.optString("picUrl", "")).let { if (it != null) return it }
+            coverOf(album)?.let { return it }
         }
         obj.optJSONObject("song")?.let { return coverOf(it) }
         return null
@@ -304,7 +309,8 @@ internal object AnnualReportParse {
 
     private fun looksLikeArtistPath(path: String): Boolean {
         val p = path.lowercase()
-        return p.contains("artist") || p.contains("singer")
+        return p.contains("artist") || p.contains("singer") ||
+            p.contains("ar[]") || p.contains(".ar[") || p.endsWith(".ar")
     }
 
     private fun looksLikeStylePath(path: String): Boolean {
@@ -347,14 +353,6 @@ internal object AnnualReportParse {
             if (s.startsWith("http")) continue
             return s
         }
-        return null
-    }
-
-    private fun httpUrl(raw: String): String? {
-        val v = raw.trim()
-        if (v.isEmpty() || v == "null") return null
-        if (v.startsWith("http://") || v.startsWith("https://")) return v
-        if (v.startsWith("//")) return "https:$v"
         return null
     }
 }

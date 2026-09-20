@@ -119,6 +119,23 @@ class AnnualReportLogicTest {
     }
 
     @Test
+    fun artistCoverHelpersFillMissingOnly() {
+        val blank = AnnualArtist(1, "甲", null, 3)
+        val kept = AnnualArtist(2, "乙", "https://keep", 2)
+        val report = AnnualReport(year = 2024, artists = listOf(blank, kept))
+        assertEquals(listOf(1L), AnnualReportLogic.artistIdsNeedingCover(report.artists))
+        val filled = AnnualReportLogic.withArtistCovers(
+            report,
+            mapOf(1L to "https://a", 2L to "https://ignored"),
+        )
+        assertEquals("https://a", filled.artists[0].coverUrl)
+        assertEquals("https://keep", filled.artists[1].coverUrl)
+        assertTrue(AnnualReportLogic.needsArtistCover(null))
+        assertTrue(AnnualReportLogic.needsArtistCover("https://p1.music.126.net/x/18686200114669622.jpg"))
+        assertFalse(AnnualReportLogic.needsArtistCover("https://keep"))
+    }
+
+    @Test
     fun formatCountUsesWan() {
         assertEquals("9999", AnnualReportLogic.formatCount(9999))
         assertEquals("1.2万", AnnualReportLogic.formatCount(12_000))
@@ -172,6 +189,7 @@ class AnnualReportParseTest {
         assertEquals("第一首", report.songs.single().name)
         assertEquals("甲", report.songs.single().artists)
         assertEquals(22L, report.artists.single().id)
+        assertEquals("https://pic/b.jpg", report.artists.single().coverUrl)
         assertEquals("流行", report.styles.single().name)
         assertEquals(23, report.hours.single { it.playCount > 0L }.hour)
     }
@@ -206,6 +224,30 @@ class AnnualReportParseTest {
         assertEquals(4L, report.artists.single().id)
         assertTrue(report.styles.any { it.name == "民谣" })
         assertTrue(report.facts.any { it.value == "凌晨" })
+    }
+
+    @Test
+    fun songArtistArrayBecomesArtistWithCover() {
+        val json = JSONObject(
+            """
+            {
+              "code": 200,
+              "data": {
+                "songPlayRank": [
+                  {
+                    "songId": 8,
+                    "songName": "曲",
+                    "ar": [{ "id": 9, "name": "丙", "picUrl": "https://artist/c.jpg" }]
+                  }
+                ]
+              }
+            }
+            """.trimIndent(),
+        )
+        val report = AnnualReportParse.fromJson(2024, json)
+        assertEquals(9L, report.artists.single().id)
+        assertEquals("丙", report.artists.single().name)
+        assertEquals("https://artist/c.jpg", report.artists.single().coverUrl)
     }
 
     @Test

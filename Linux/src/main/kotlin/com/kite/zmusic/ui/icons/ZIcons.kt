@@ -5,8 +5,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Business
 import androidx.compose.material.icons.rounded.CalendarMonth
@@ -93,8 +92,7 @@ object ZIcons {
     val Repeat: ImageVector get() = Icons.Rounded.Repeat
     val RepeatOne: ImageVector get() = Icons.Rounded.RepeatOne
     val Shuffle: ImageVector get() = Icons.Rounded.Shuffle
-    val Comments: ImageVector get() = Icons.Outlined.ChatBubbleOutline
-    val FavoriteBorder: ImageVector get() = Icons.Outlined.FavoriteBorder
+    val Comments: ImageVector get() = Icons.Rounded.ChatBubble
     val Chevron: ImageVector get() = Icons.AutoMirrored.Rounded.KeyboardArrowRight
 
     fun dock(destination: MainDestination): ImageVector = when (destination) {

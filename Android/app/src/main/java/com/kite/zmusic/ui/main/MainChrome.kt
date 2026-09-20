@@ -483,22 +483,13 @@ internal fun MainDarkSystemBars() {
     MainSystemBarIcons(lightIconsOnDarkScrim = true)
 }
 
-/** 竖屏 MV：状态栏压在视频上用浅色图标，导航栏压在相关列表上用深色图标。 */
+/**
+ * 竖屏 MV：视频已避开状态栏，顶栏区域透出主壳壁纸/页面底色，
+ * 图标外观与主页一致。
+ */
 @Composable
 internal fun MainMvPortraitSystemBars() {
-    val view = LocalView.current
-    DisposableEffect(view) {
-        val window = (view.context as? Activity)?.window
-        val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-        val prevStatus = controller?.isAppearanceLightStatusBars
-        val prevNav = controller?.isAppearanceLightNavigationBars
-        controller?.isAppearanceLightStatusBars = false
-        controller?.isAppearanceLightNavigationBars = true
-        onDispose {
-            if (prevStatus != null) controller.isAppearanceLightStatusBars = prevStatus
-            if (prevNav != null) controller.isAppearanceLightNavigationBars = prevNav
-        }
-    }
+    MainLightSystemBars()
 }
 
 @Composable

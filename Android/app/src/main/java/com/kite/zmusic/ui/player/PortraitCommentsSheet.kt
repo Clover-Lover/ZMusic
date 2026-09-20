@@ -45,6 +45,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -112,6 +113,8 @@ import com.kite.zmusic.data.SongCommentsSnapshot
 import com.kite.zmusic.i18n.t
 import com.kite.zmusic.ui.common.UrlImage
 import com.kite.zmusic.ui.easter.MjEasterEgg
+import com.kite.zmusic.ui.icons.ZIconSize
+import com.kite.zmusic.ui.icons.ZIcons
 import com.kite.zmusic.ui.main.MainPalette
 import com.kite.zmusic.ui.main.pageSheetHazeStyle
 import com.kite.zmusic.ui.notice.showIslandNotice
@@ -179,48 +182,23 @@ fun NowPlayingCommentsIconButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        TransportCommentsIcon(size = 16.dp, tint = TextTheme.PlayerTime.copy(alpha = 0.92f))
+        TransportCommentsIcon(size = ZIconSize.Compact, tint = TextTheme.PlayerTime.copy(alpha = 0.92f))
     }
 }
 
-/** 对话气泡：与传输条线描图标同族。 */
+/** 评论：与传输条同一套 Rounded 实心图标。 */
 @Composable
 fun TransportCommentsIcon(
     modifier: Modifier = Modifier,
-    size: Dp = 16.dp,
+    size: Dp = ZIconSize.Standard,
     tint: Color = CommentIconTint,
 ) {
-    Canvas(modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val stroke = Stroke(
-            width = min(w, h) * 0.11f,
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-        )
-        val left = w * 0.12f
-        val right = w * 0.88f
-        val top = h * 0.14f
-        val bottom = h * 0.62f
-        drawRoundRect(
-            color = tint,
-            topLeft = Offset(left, top),
-            size = Size(right - left, bottom - top),
-            cornerRadius = CornerRadius(w * 0.12f, w * 0.12f),
-            style = stroke,
-        )
-        val tail = Path().apply {
-            moveTo(w * 0.28f, bottom)
-            lineTo(w * 0.22f, h * 0.84f)
-            lineTo(w * 0.42f, bottom)
-        }
-        drawPath(tail, tint, style = stroke)
-        val cy = (top + bottom) / 2f
-        val r = min(w, h) * 0.045f
-        drawCircle(tint, r, Offset(w * 0.34f, cy))
-        drawCircle(tint, r, Offset(w * 0.50f, cy))
-        drawCircle(tint, r, Offset(w * 0.66f, cy))
-    }
+    Icon(
+        imageVector = ZIcons.Comments,
+        contentDescription = null,
+        tint = tint,
+        modifier = modifier.size(ZIconSize.snap(size)),
+    )
 }
 
 /**
@@ -1132,7 +1110,7 @@ private fun CommentHeaderArrowButton(
     onClick: () -> Unit,
 ) {
     val rotation by animateFloatAsState(
-        targetValue = if (expanded) 180f else 0f,
+        targetValue = if (expanded) 0f else 180f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMediumLow,
@@ -1153,30 +1131,12 @@ private fun CommentHeaderArrowButton(
             .graphicsLayer { rotationZ = rotation },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(16.dp)) {
-            val w = this.size.width
-            val h = this.size.height
-            val stroke = Stroke(
-                width = min(w, h) * 0.14f,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round,
-            )
-            // 上箭头（展开后旋转 180° 变下箭头）
-            drawLine(
-                CommentIconTint,
-                Offset(w * 0.22f, h * 0.58f),
-                Offset(w * 0.50f, h * 0.32f),
-                stroke.width,
-                StrokeCap.Round,
-            )
-            drawLine(
-                CommentIconTint,
-                Offset(w * 0.50f, h * 0.32f),
-                Offset(w * 0.78f, h * 0.58f),
-                stroke.width,
-                StrokeCap.Round,
-            )
-        }
+        Icon(
+            imageVector = ZIcons.ExpandMore,
+            contentDescription = null,
+            tint = CommentIconTint,
+            modifier = Modifier.size(ZIconSize.Standard),
+        )
     }
 }
 
@@ -1613,7 +1573,6 @@ private fun CommentRow(
                                 } else {
                                     CommentHint.copy(alpha = 0.85f)
                                 },
-                                filled = comment.liked,
                             )
                             Text(
                                 text = if (comment.likedCount > 0) {
@@ -2035,7 +1994,6 @@ private fun CommentReplyRow(
                 CommentLikeIcon(
                     size = 11.dp,
                     tint = CommentHint.copy(alpha = 0.75f),
-                    filled = false,
                 )
                 Text(
                     text = if (comment.likedCount > 0) formatCount(comment.likedCount) else t("赞"),
@@ -2266,86 +2224,26 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHugPerson(
 private fun CommentLikeIcon(
     size: Dp,
     tint: Color,
-    filled: Boolean = false,
 ) {
-    Canvas(Modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val path = Path().apply {
-            moveTo(w * 0.50f, h * 0.88f)
-            cubicTo(
-                w * 0.18f, h * 0.68f,
-                w * 0.05f, h * 0.42f,
-                w * 0.28f, h * 0.24f,
-            )
-            cubicTo(
-                w * 0.40f, h * 0.14f,
-                w * 0.50f, h * 0.22f,
-                w * 0.50f, h * 0.34f,
-            )
-            cubicTo(
-                w * 0.50f, h * 0.22f,
-                w * 0.60f, h * 0.14f,
-                w * 0.72f, h * 0.24f,
-            )
-            cubicTo(
-                w * 0.95f, h * 0.42f,
-                w * 0.82f, h * 0.68f,
-                w * 0.50f, h * 0.88f,
-            )
-            close()
-        }
-        if (filled) {
-            drawPath(path, tint)
-        } else {
-            drawPath(
-                path,
-                tint,
-                style = Stroke(width = min(w, h) * 0.12f, join = StrokeJoin.Round),
-            )
-        }
-    }
+    Icon(
+        imageVector = ZIcons.Favorite,
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(ZIconSize.snap(size)),
+    )
 }
 
-/**
- * 网易云抱抱：左右两只手掌水平对捏（非上下合十）。
- */
 @Composable
 private fun CommentHugIcon(
     size: Dp,
     tint: Color,
 ) {
-    Canvas(Modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val stroke = Stroke(
-            width = min(w, h) * 0.11f,
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-        )
-        // 左手：从左向右捏
-        val left = Path().apply {
-            moveTo(w * 0.10f, h * 0.38f)
-            quadraticTo(w * 0.22f, h * 0.22f, w * 0.36f, h * 0.30f)
-            quadraticTo(w * 0.42f, h * 0.42f, w * 0.38f, h * 0.56f)
-            quadraticTo(w * 0.28f, h * 0.70f, w * 0.14f, h * 0.62f)
-            quadraticTo(w * 0.08f, h * 0.52f, w * 0.10f, h * 0.38f)
-            close()
-        }
-        // 右手：从右向左捏
-        val right = Path().apply {
-            moveTo(w * 0.90f, h * 0.38f)
-            quadraticTo(w * 0.78f, h * 0.22f, w * 0.64f, h * 0.30f)
-            quadraticTo(w * 0.58f, h * 0.42f, w * 0.62f, h * 0.56f)
-            quadraticTo(w * 0.72f, h * 0.70f, w * 0.86f, h * 0.62f)
-            quadraticTo(w * 0.92f, h * 0.52f, w * 0.90f, h * 0.38f)
-            close()
-        }
-        drawPath(left, tint, style = stroke)
-        drawPath(right, tint, style = stroke)
-        // 中间捏合触点
-        drawCircle(tint, min(w, h) * 0.055f, Offset(w * 0.50f, h * 0.46f))
-    }
+    Icon(
+        imageVector = ZIcons.Handshake,
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(ZIconSize.snap(size)),
+    )
 }
 
 @Composable
@@ -2359,22 +2257,14 @@ private fun CommentChevronIcon(
         animationSpec = tween(220),
         label = "replyChevron",
     )
-    Canvas(
-        Modifier
-            .size(size)
+    Icon(
+        imageVector = ZIcons.ExpandMore,
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier
+            .size(ZIconSize.snap(size))
             .graphicsLayer { rotationZ = rotation },
-    ) {
-        val w = this.size.width
-        val h = this.size.height
-        val stroke = Stroke(
-            width = min(w, h) * 0.16f,
-            cap = StrokeCap.Round,
-            join = StrokeJoin.Round,
-        )
-        // 默认下箭头，展开后旋转为上
-        drawLine(tint, Offset(w * 0.18f, h * 0.38f), Offset(w * 0.50f, h * 0.68f), stroke.width, StrokeCap.Round)
-        drawLine(tint, Offset(w * 0.50f, h * 0.68f), Offset(w * 0.82f, h * 0.38f), stroke.width, StrokeCap.Round)
-    }
+    )
 }
 
 /**

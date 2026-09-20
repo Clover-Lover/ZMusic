@@ -68,7 +68,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -261,6 +260,7 @@ internal fun PortraitPlayerBody(
     peekPrevTrack: TrackRow? = null,
     onSeek: (Long) -> Unit = {},
     lyric: PortraitLyricOverlay = PortraitLyricOverlay(),
+    hazeState: HazeState? = null,
     modifier: Modifier = Modifier,
 ) {
     val onOpenMore = sheets.onOpenMore
@@ -402,7 +402,8 @@ internal fun PortraitPlayerBody(
     }.collectAsStateWithLifecycle(initialValue = app.playbackBridge.ui.value.fmActive)
     val fmChoice by app.personalFmModeStore.choice.collectAsStateWithLifecycle()
     var fmPickerOpen by remember { mutableStateOf(false) }
-    var fmPickerOrigin by remember { mutableStateOf(Offset.Zero) }
+    var fmPickerOrigin by remember { mutableStateOf(Rect.Zero) }
+    var fmIconCovered by remember { mutableStateOf(false) }
     var fmApplying by remember { mutableStateOf(false) }
     LaunchedEffect(playbackFmActive) {
         if (!playbackFmActive) {
@@ -469,6 +470,7 @@ internal fun PortraitPlayerBody(
                             trackName = track.name,
                             onDismiss = onDismiss,
                             showFmMode = playbackFmActive,
+                            fmModeCovered = fmIconCovered,
                             onFmModeClick = { origin ->
                                 fmPickerOrigin = origin
                                 fmPickerOpen = true
@@ -720,8 +722,8 @@ internal fun PortraitPlayerBody(
                 onOpenListenTogether = onOpenListenTogether,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .fillMaxWidth()
                     .padding(top = topChromeH + 10.dp)
-                    .wrapContentSize()
                     .graphicsLayer {
                         alpha = topClearA
                         clip = false
@@ -746,6 +748,7 @@ internal fun PortraitPlayerBody(
                     trackName = track.name,
                     onDismiss = onDismiss,
                     showFmMode = playbackFmActive,
+                    fmModeCovered = fmIconCovered,
                     onFmModeClick = { origin ->
                         fmPickerOrigin = origin
                         fmPickerOpen = true
@@ -822,9 +825,12 @@ internal fun PortraitPlayerBody(
 
         PersonalFmModePickerOverlay(
             visible = fmPickerOpen,
-            originInWindow = fmPickerOrigin,
+            originBounds = fmPickerOrigin,
             current = fmChoice,
             applying = fmApplying,
+            haze = hazeState,
+            chromeBackground = false,
+            onCoveredChange = { fmIconCovered = it },
             onDismiss = { if (!fmApplying) fmPickerOpen = false },
             onSelect = { choice ->
                 if (choice == fmChoice) {
@@ -846,7 +852,8 @@ private fun PortraitPlayerTopBar(
     trackName: String,
     onDismiss: () -> Unit,
     showFmMode: Boolean = false,
-    onFmModeClick: (Offset) -> Unit = {},
+    onFmModeClick: (Rect) -> Unit = {},
+    fmModeCovered: Boolean = false,
 ) {
     val activity = LocalActivity.current
     val rotationLock = com.kite.zmusic.ui.orientation.LocalSessionRotationLock.current
@@ -881,6 +888,7 @@ private fun PortraitPlayerTopBar(
         if (showFmMode) {
             NowPlayingFmModeButton(
                 chromeBackground = false,
+                covered = fmModeCovered,
                 onClick = onFmModeClick,
             )
         }

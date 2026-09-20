@@ -289,10 +289,8 @@ private fun shareTrackLikePlayer(
         }
         when (val result = NcmShare.sendImage(context, uri, target)) {
             NcmShareResult.Opened -> Unit
-            NcmShareResult.Failed -> context.showIslandNotice(t("分享失败"))
-            is NcmShareResult.MissingApp ->
-                context.showIslandNotice(t("未安装%s", result.appName))
-            else -> context.showIslandNotice(t("分享失败"))
+            else -> NcmShare.imageResultNotice(target, result)
+                ?.let { context.showIslandNotice(it) }
         }
     }
 }

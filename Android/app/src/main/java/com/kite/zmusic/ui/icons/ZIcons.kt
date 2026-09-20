@@ -6,6 +6,7 @@ import androidx.compose.material.icons.automirrored.rounded.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.rounded.FormatAlignRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AlignHorizontalCenter
 import androidx.compose.material.icons.rounded.Add
@@ -20,7 +21,9 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Menu
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
@@ -66,8 +69,12 @@ import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.RemoveCircle
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Replay5
 import androidx.compose.material.icons.rounded.ScreenRotation
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Security
@@ -126,7 +133,14 @@ object ZIcons {
     val Favorite: ImageVector get() = Icons.Rounded.Favorite
     val More: ImageVector get() = Icons.Rounded.MoreVert
     val MoreHoriz: ImageVector get() = Icons.Rounded.MoreHoriz
-    val Comments: ImageVector get() = Icons.Outlined.ChatBubbleOutline
+    val Comments: ImageVector get() = Icons.Rounded.ChatBubble
+    val Copy: ImageVector get() = Icons.Rounded.ContentCopy
+    val Reply: ImageVector get() = Icons.AutoMirrored.Rounded.Reply
+    val Email: ImageVector get() = Icons.Rounded.Email
+    val RemoveCircle: ImageVector get() = Icons.Rounded.RemoveCircle
+    val Repeat: ImageVector get() = Icons.Rounded.Repeat
+    val RepeatOne: ImageVector get() = Icons.Rounded.RepeatOne
+    val Shuffle: ImageVector get() = Icons.Rounded.Shuffle
     val Share: ImageVector get() = Icons.Rounded.Share
     val Link: ImageVector get() = Icons.Rounded.Link
     val Check: ImageVector get() = Icons.Rounded.Check

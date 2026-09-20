@@ -81,7 +81,8 @@ internal fun PortraitListenTogetherSheet(
     val app = context.applicationContext as ZMusicApplication
     val listen = app.listenTogether
     val ui by listen.ui.collectAsStateWithLifecycle()
-    val loggedIn = app.workshopAuthStore.hasToken()
+    val workshopAuth by app.workshopAuthStore.session.collectAsStateWithLifecycle()
+    val loggedIn = workshopAuth != null
     val scope = rememberCoroutineScope()
     var sharing by remember { mutableStateOf(false) }
     var shareUri by remember { mutableStateOf<Uri?>(null) }
@@ -334,10 +335,8 @@ internal fun PortraitListenTogetherSheet(
                     }
                     when (val result = NcmShare.sendImage(context, uri, target)) {
                         NcmShareResult.Opened -> Unit
-                        NcmShareResult.Failed -> context.showIslandNotice(t("分享失败"))
-                        is NcmShareResult.MissingApp ->
-                            context.showIslandNotice(t("未安装%s", result.appName))
-                        else -> context.showIslandNotice(t("分享失败"))
+                        else -> NcmShare.imageResultNotice(target, result)
+                            ?.let { context.showIslandNotice(it) }
                     }
                 },
                 hazeState = hazeState,

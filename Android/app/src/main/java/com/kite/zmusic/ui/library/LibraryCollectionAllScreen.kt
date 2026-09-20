@@ -443,7 +443,7 @@ private fun CollectionAllSearchBar(
                     imageVector = ZIcons.Close,
                     contentDescription = t("清除"),
                     tint = MainPalette.Hint,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }

@@ -70,11 +70,15 @@ bash Distribution/Linux/build-deb.sh --install-deps
 sudo apt install ./artifacts/linux/ZMusic-Linux-0.1.deb
 ```
 
-API 基址默认内置；本地调试可覆盖（文档不写死服务地址）：
+API 基址**不入库**。正式包在本地用 properties / 环境变量注入（与签名密钥同策略）：
 
 ```properties
-# Android/local.properties
+# Android：复制 Android/local.properties.example → local.properties（已 gitignore）
 ncm.api.base.url=http://127.0.0.1:3000
+community.server.host=127.0.0.1
+community.server.port=80
+uapipro.base.url=https://uapis.cn/api/v1
+uapipro.api.key=your-uapipro-api-key
 ```
 
 ```powershell
@@ -85,8 +89,11 @@ $env:ZMUSIC_NCM_API_BASE_URL = "http://127.0.0.1:3000"
 ```bash
 # Linux
 export ZMUSIC_NCM_API_BASE_URL=http://127.0.0.1:3000
+export ZMUSIC_COMMUNITY_SERVER=127.0.0.1:80
 ```
 
+未配置时客户端不含可用的默认公网地址，需在 App 内自行填写服务器。
+UApiPro（翻译等增强能力）同样通过 `uapipro.*` 注入，也可在设置 → 连接 → UApiPro 运行时修改。
 ## 🗂️ 仓库结构
 
 ```

@@ -63,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -277,55 +278,64 @@ fun NowPlayingSettingsIconButton(
 }
 
 @Composable
-fun NowPlayingFmModeButton(
-    onClick: (Offset) -> Unit,
+internal fun FmModeGlyph(
+    filled: Boolean,
     modifier: Modifier = Modifier,
-    chromeBackground: Boolean = true,
+    tint: Color = IconTint,
 ) {
-    val iconSize = if (chromeBackground) 18.dp else 15.dp
-    val icon: @Composable () -> Unit = {
-        Canvas(Modifier.size(iconSize)) {
-            val strokeW = size.minDimension * if (chromeBackground) 0.11f else 0.085f
-            val pad = size.minDimension * 0.14f
-            val gap = size.minDimension * 0.12f
-            val cell = (size.minDimension - pad * 2f - gap * 2f) / 3f
-            val r = cell * 0.28f
-            for (row in 0..2) {
-                for (col in 0..2) {
-                    val x = pad + col * (cell + gap)
-                    val y = pad + row * (cell + gap)
-                    if (chromeBackground) {
-                        drawRoundRect(
-                            color = IconTint,
-                            topLeft = Offset(x, y),
-                            size = androidx.compose.ui.geometry.Size(cell, cell),
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                        )
-                    } else {
-                        drawRoundRect(
-                            color = IconTint,
-                            topLeft = Offset(x, y),
-                            size = androidx.compose.ui.geometry.Size(cell, cell),
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                            style = Stroke(width = strokeW, cap = StrokeCap.Round),
-                        )
-                    }
+    val dim = if (filled) 18.dp else 15.dp
+    Canvas(modifier.size(dim)) {
+        val strokeW = size.minDimension * if (filled) 0.11f else 0.085f
+        val pad = size.minDimension * 0.14f
+        val gap = size.minDimension * 0.12f
+        val cell = (size.minDimension - pad * 2f - gap * 2f) / 3f
+        val r = cell * 0.28f
+        for (row in 0..2) {
+            for (col in 0..2) {
+                val x = pad + col * (cell + gap)
+                val y = pad + row * (cell + gap)
+                if (filled) {
+                    drawRoundRect(
+                        color = tint,
+                        topLeft = Offset(x, y),
+                        size = androidx.compose.ui.geometry.Size(cell, cell),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                    )
+                } else {
+                    drawRoundRect(
+                        color = tint,
+                        topLeft = Offset(x, y),
+                        size = androidx.compose.ui.geometry.Size(cell, cell),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                    )
                 }
             }
         }
     }
-    var origin by remember { mutableStateOf(Offset.Zero) }
-    val locate = Modifier.onGloballyPositioned { coords ->
-        val b = coords.boundsInWindow()
-        origin = Offset(b.left + b.width / 2f, b.top + b.height / 2f)
-    }
+}
+
+@Composable
+fun NowPlayingFmModeButton(
+    onClick: (Rect) -> Unit,
+    modifier: Modifier = Modifier,
+    chromeBackground: Boolean = true,
+    covered: Boolean = false,
+) {
+    var origin by remember { mutableStateOf(Rect.Zero) }
+    val cover = Modifier.graphicsLayer { alpha = if (covered) 0f else 1f }
     val fire = { onClick(origin) }
     if (chromeBackground) {
-        ChromeIconShell(onClick = fire, modifier = modifier.then(locate), content = icon)
+        ChromeIconShell(
+            onClick = fire,
+            modifier = modifier
+                .then(cover)
+                .onGloballyPositioned { origin = it.boundsInWindow() },
+            content = { FmModeGlyph(filled = true) },
+        )
     } else {
         Box(
             modifier
-                .then(locate)
                 .size(width = NowPlayingChromeIconWidth, height = NowPlayingChromeIconHeight)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -333,8 +343,15 @@ fun NowPlayingFmModeButton(
                     onClick = fire,
                 ),
             contentAlignment = Alignment.Center,
-            content = { icon() },
-        )
+        ) {
+            Box(
+                Modifier
+                    .then(cover)
+                    .onGloballyPositioned { origin = it.boundsInWindow() },
+            ) {
+                FmModeGlyph(filled = false)
+            }
+        }
     }
 }
 
@@ -1209,25 +1226,27 @@ fun NowPlayingSettingsSheet(
                     }
                     SettingsCategory(title = t("黑胶"), titleAlpha = dim) {
                         SettingsAlpha(dim) {
-                            SettingsSwitchRow(
-                                title = t("完整封面"),
-                                subtitle = t("封面铺满中心，隐藏轴心镂空"),
-                                checked = prefs.vinylFullCover,
-                                colors = switchColors,
-                                onCheckedChange = {
-                                    onPrefsChange(prefs.copy(vinylFullCover = it))
-                                },
-                            )
-                            SettingsSliderRow(
-                                title = t("黑胶转速"),
-                                valueLabel = String.format("%.1f×", prefs.vinylSpinSpeed),
-                                value = prefs.vinylSpinSpeed,
-                                valueRange = PlayerDisplayPrefs.VINYL_SPIN_SPEED_MIN..
-                                    PlayerDisplayPrefs.VINYL_SPIN_SPEED_MAX,
-                                onValueChange = {
-                                    onPrefsChange(prefs.copy(vinylSpinSpeed = it))
-                                },
-                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SettingsSwitchRow(
+                                    title = t("完整封面"),
+                                    subtitle = t("封面铺满中心，隐藏轴心镂空"),
+                                    checked = prefs.vinylFullCover,
+                                    colors = switchColors,
+                                    onCheckedChange = {
+                                        onPrefsChange(prefs.copy(vinylFullCover = it))
+                                    },
+                                )
+                                SettingsSliderRow(
+                                    title = t("黑胶转速"),
+                                    valueLabel = String.format("%.1f×", prefs.vinylSpinSpeed),
+                                    value = prefs.vinylSpinSpeed,
+                                    valueRange = PlayerDisplayPrefs.VINYL_SPIN_SPEED_MIN..
+                                        PlayerDisplayPrefs.VINYL_SPIN_SPEED_MAX,
+                                    onValueChange = {
+                                        onPrefsChange(prefs.copy(vinylSpinSpeed = it))
+                                    },
+                                )
+                            }
                         }
                         SettingsAlpha(rowAlpha(SettingsPreviewKey.VinylSize)) {
                             SettingsSliderRow(

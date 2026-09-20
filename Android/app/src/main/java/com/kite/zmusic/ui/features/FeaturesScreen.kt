@@ -259,7 +259,7 @@ private fun FeatureCard(
                 imageVector = item.icon,
                 contentDescription = item.title,
                 tint = item.color,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(22.dp),
             )
         }
         Spacer(Modifier.width(10.dp))

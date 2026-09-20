@@ -51,11 +51,14 @@ class ZMusicApplication : Application() {
     val ncmAuthClient get() = container.ncmAuthClient
     val sessionRepository: SessionRepository get() = container.sessionRepository
     val communityServerStore get() = container.communityServerStore
+    val uapiProStore get() = container.uapiProStore
+    val uapiProClient get() = container.uapiProClient
     val communityLoginRepository get() = container.communityLoginRepository
     val audioQualityStore: AudioQualityStore get() = container.audioQualityStore
     val tunePrefsStore get() = container.tunePrefsStore
     val audioOutputController get() = container.audioOutputController
     val persistentPlaybackStore: PersistentPlaybackStore get() = container.persistentPlaybackStore
+    val privacyStore get() = container.privacyStore
     val predictiveBackStore get() = container.predictiveBackStore
     val landscapeModeStore get() = container.landscapeModeStore
     val splashAccelStore get() = container.splashAccelStore

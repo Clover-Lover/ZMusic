@@ -10,6 +10,8 @@ import com.kite.zmusic.data.SessionRepository
 import com.kite.zmusic.data.SongRepository
 import com.kite.zmusic.data.TrackRow
 import com.kite.zmusic.data.ZMusicListenLink
+import com.kite.zmusic.data.uapipro.UApiProClient
+import com.kite.zmusic.i18n.I18n
 import com.kite.zmusic.playback.PlaybackBridge
 import com.kite.zmusic.playback.PlaybackUiState
 import com.kite.zmusic.ui.notice.IslandNoticeCenter
@@ -39,6 +41,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import com.kite.zmusic.i18n.t
 
@@ -53,11 +56,19 @@ class ListenTogetherController(
     private val songs: SongRepository,
     private val session: SessionRepository,
     private val notices: IslandNoticeCenter,
+    private val uapiPro: UApiProClient,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val opMutex = Mutex()
     private val _ui = MutableStateFlow(ListenTogetherUi())
     val ui: StateFlow<ListenTogetherUi> = _ui.asStateFlow()
+
+    /** 聊天室翻译：仅本机；键为 toastKey / 内容指纹。结束一起听后清空。 */
+    private val _chatTranslations =
+        MutableStateFlow<Map<String, ListenChatTranslateEntry>>(emptyMap())
+    val chatTranslations: StateFlow<Map<String, ListenChatTranslateEntry>> =
+        _chatTranslations.asStateFlow()
+    private val translateJobs = ConcurrentHashMap<String, Job>()
 
     @Volatile private var pollJob: Job? = null
     @Volatile private var started = false
@@ -72,6 +83,7 @@ class ListenTogetherController(
     @Volatile private var localMemory = ListenLocalMemory()
     @Volatile private var lastDriftAt = 0L
     @Volatile private var lastNotifiedChatId = 0L
+    @Volatile private var overlayedChat: Set<String> = emptySet()
     @Volatile private var playerForeground = false
     @Volatile private var chatForeground = false
     @Volatile private var appForeground = true
@@ -141,19 +153,21 @@ class ListenTogetherController(
     }
 
     fun setChatForeground(open: Boolean) {
-        val wasOpen = chatForeground
         chatForeground = open
         if (open) {
             markChatRead()
             return
         }
-        if (!wasOpen) return
         _ui.update { cur ->
             val mine = cur.room?.chat.orEmpty().lastOrNull { listenChatIsSelf(it, cur.selfUid) }
-                ?: return@update cur
-            val age = if (mine.at > 0L) System.currentTimeMillis() - mine.at else Long.MAX_VALUE
-            if (age > 12_000L) return@update cur
-            cur.copy(chatToast = mine)
+            val replay = listenChatSelfToastForClosedSheet(
+                lastSelf = mine,
+                current = cur.chatToasts,
+                overlayed = overlayedChat,
+                nowMs = System.currentTimeMillis(),
+            ) ?: return@update cur
+            rememberOverlayed(listOf(replay))
+            cur.copy(chatToasts = pushListenChatToasts(cur.chatToasts, listOf(replay)))
         }
     }
 
@@ -472,20 +486,119 @@ class ListenTogetherController(
     }
 
     fun markChatRead() {
-        val maxId = _ui.value.room?.chat?.maxOfOrNull { it.id } ?: return
-        lastNotifiedChatId = maxOf(lastNotifiedChatId, maxId)
+        val chat = _ui.value.room?.chat.orEmpty()
+        if (chat.isNotEmpty()) {
+            lastNotifiedChatId = maxOf(lastNotifiedChatId, chat.maxOf { it.id.coerceAtLeast(0L) })
+            rememberOverlayed(chat)
+        }
         _ui.update { cur ->
             cur.copy(
-                lastReadChatId = maxOf(cur.lastReadChatId, maxId),
-                chatToast = listenChatKeepToastWhileReading(cur.chatToast, cur.selfUid),
+                lastReadChatId = maxOf(
+                    cur.lastReadChatId,
+                    chat.maxOfOrNull { it.id.coerceAtLeast(0L) } ?: 0L,
+                ),
+                chatToasts = listenChatKeepToastsWhileReading(cur.chatToasts, cur.selfUid),
             )
         }
     }
 
-    fun clearChatToast(id: Long) {
+    private fun rememberOverlayed(msgs: Iterable<ListenChatMsg>) {
+        overlayedChat = listenChatOverlayedTokens(msgs, overlayedChat)
+    }
+
+    fun clearChatToast(key: String) {
         _ui.update { cur ->
-            if (cur.chatToast?.id == id) cur.copy(chatToast = null) else cur
+            if (cur.chatToasts.any { it.key == key }) {
+                cur.copy(chatToasts = dismissListenChatToast(cur.chatToasts, key))
+            } else {
+                cur
+            }
         }
+    }
+
+    fun hideChatTranslation(msg: ListenChatMsg) {
+        _chatTranslations.update { hideListenChatTranslate(it, msg) }
+    }
+
+    /**
+     * 长按翻译：仅本机。已有缓存则直接再显示；否则走 UApiPro AI 翻译。
+     * source_lang 不传；style=academic / context=general / preserve_format=true。
+     */
+    fun translateChat(msg: ListenChatMsg) {
+        val body = msg.text.trim()
+        if (body.isEmpty()) return
+        val key = listenChatToastKey(msg)
+        val existing = listenChatTranslateLookup(_chatTranslations.value, msg)
+        if (existing != null && existing.text.isNotBlank() && !existing.loading) {
+            _chatTranslations.update {
+                putListenChatTranslate(
+                    it,
+                    msg,
+                    existing.copy(visible = true, loading = false, error = null),
+                )
+            }
+            return
+        }
+        if (existing?.loading == true) return
+
+        _chatTranslations.update {
+            putListenChatTranslate(
+                it,
+                msg,
+                ListenChatTranslateEntry(loading = true, visible = true),
+            )
+        }
+        translateJobs[key]?.cancel()
+        translateJobs[key] = scope.launch {
+            val target = I18n.language.tag
+            val result = uapiPro.translate(
+                text = listenChatVisibleBody(body),
+                targetLang = target,
+                sourceLang = null,
+                style = "academic",
+                context = "general",
+                preserveFormat = true,
+            )
+            result.fold(
+                onSuccess = { ok ->
+                    _chatTranslations.update {
+                        putListenChatTranslate(
+                            it,
+                            msg,
+                            ListenChatTranslateEntry(
+                                text = ok.translatedText,
+                                visible = true,
+                                loading = false,
+                            ),
+                        )
+                    }
+                },
+                onFailure = { err ->
+                    _chatTranslations.update {
+                        putListenChatTranslate(
+                            it,
+                            msg,
+                            ListenChatTranslateEntry(
+                                visible = false,
+                                loading = false,
+                                error = err.message,
+                            ),
+                        )
+                    }
+                    notices.show(
+                        err.message?.takeIf { it.isNotBlank() } ?: t("翻译失败"),
+                    )
+                },
+            )
+        }.also { job ->
+            job.invokeOnCompletion { translateJobs.remove(key, job) }
+        }
+    }
+
+    private fun clearChatTranslations() {
+        translateJobs.values.forEach { it.cancel() }
+        translateJobs.clear()
+        _chatTranslations.value = emptyMap()
     }
 
     fun sendChat(text: String) {
@@ -503,12 +616,17 @@ class ListenTogetherController(
             text = body,
             at = System.currentTimeMillis(),
         )
+        rememberOverlayed(listOf(local))
         _ui.update { cur ->
             val current = cur.room ?: return@update cur
             if (current.id != room.id) return@update cur
             cur.copy(
                 room = current.copy(chat = current.chat + local),
-                chatToast = local,
+                chatToasts = if (chatForeground) {
+                    cur.chatToasts
+                } else {
+                    pushListenChatToasts(cur.chatToasts, listOf(local))
+                },
             )
         }
         scope.launch {
@@ -542,7 +660,7 @@ class ListenTogetherController(
             if (room.id != roomId) return@update cur
             cur.copy(
                 room = room.copy(chat = room.chat.filter { it.id != localId }),
-                chatToast = if (cur.chatToast?.id == localId) null else cur.chatToast,
+                chatToasts = dismissListenChatToastById(cur.chatToasts, localId),
             )
         }
     }
@@ -645,6 +763,7 @@ class ListenTogetherController(
         recvElapsed = SystemClock.elapsedRealtime()
         val prevId = _ui.value.room?.id
         var ping = false
+        val previousChat = _ui.value.room?.chat.orEmpty()
         _ui.update { cur ->
             val self = auth.current()?.uid.orEmpty().ifBlank { cur.selfUid }
             val merged = mergeListenRoomChat(
@@ -654,34 +773,47 @@ class ListenTogetherController(
                 selfUid = self,
             )
             var lastRead = cur.lastReadChatId
-            var toast = cur.chatToast
+            var toasts = retargetListenChatToasts(cur.chatToasts, merged)
+            lastNotifiedChatId = maxOf(
+                lastNotifiedChatId,
+                toasts.maxOfOrNull { it.msg.id.coerceAtLeast(0L) } ?: 0L,
+            )
             if (prevId != snap.id) {
-                lastRead = merged.maxOfOrNull { it.id } ?: 0L
+                lastRead = merged.maxOfOrNull { it.id.coerceAtLeast(0L) } ?: 0L
                 lastNotifiedChatId = lastRead
-                toast = null
+                overlayedChat = listenChatOverlayedTokens(merged)
+                toasts = emptyList()
             } else if (chatForeground) {
-                lastRead = maxOf(lastRead, merged.maxOfOrNull { it.id } ?: 0L)
+                lastRead = maxOf(lastRead, merged.maxOfOrNull { it.id.coerceAtLeast(0L) } ?: 0L)
                 lastNotifiedChatId = maxOf(lastNotifiedChatId, lastRead)
-                toast = listenChatKeepToastWhileReading(
-                    retargetListenChatToast(toast, merged),
-                    self,
-                )
+                rememberOverlayed(merged)
+                toasts = listenChatKeepToastsWhileReading(toasts, self)
             } else {
-                val newest = merged.lastOrNull { it.id > lastNotifiedChatId }
-                if (newest != null) {
-                    lastNotifiedChatId = newest.id
-                    toast = newest
-                    ping = !playerForeground && !listenChatIsSelf(newest, self)
-                } else {
-                    toast = retargetListenChatToast(toast, merged)
+                val newer = listenChatIncomingOverlay(
+                    merged.filter { it.id > lastNotifiedChatId },
+                    overlayedChat,
+                )
+                if (newer.isNotEmpty()) {
+                    lastNotifiedChatId = maxOf(lastNotifiedChatId, newer.maxOf { it.id.coerceAtLeast(0L) })
+                    rememberOverlayed(newer)
+                    toasts = pushListenChatToasts(toasts, newer)
+                    ping = !playerForeground && newer.any { !listenChatIsSelf(it, self) }
                 }
             }
             cur.copy(
                 room = snap.copy(chat = merged),
                 selfUid = self,
                 lastReadChatId = lastRead,
-                chatToast = toast,
+                chatToasts = toasts,
             )
+        }
+        if (prevId != snap.id) {
+            clearChatTranslations()
+        } else {
+            val merged = _ui.value.room?.chat.orEmpty()
+            _chatTranslations.update {
+                retargetListenChatTranslations(it, previousChat, merged)
+            }
         }
         if (ping) playChatPing()
         if (snap.closed) {
@@ -974,12 +1106,14 @@ class ListenTogetherController(
         suppressLocalUntil = 0L
         lastDriftAt = 0L
         lastNotifiedChatId = 0L
+        overlayedChat = emptySet()
         applyGen++
         applyingHlc = 0L
         pollAfter = 0L
+        clearChatTranslations()
         val had = _ui.value.inRoom
         clearMatchState(clearIncoming = false)
-        _ui.update { it.copy(room = null, lastReadChatId = 0L, chatToast = null) }
+        _ui.update { it.copy(room = null, lastReadChatId = 0L, chatToasts = emptyList()) }
         leavingRoom = false
         if (had && !message.isNullOrBlank()) {
             notices.show(message)
@@ -987,8 +1121,8 @@ class ListenTogetherController(
     }
 
     /**
-     * 结束一起听：立刻停掉远端对齐，本机只暂停，不 seek、不换歌。
-     * 须在关房网络请求之前调用，避免最后一次 poll/pause 再把进度或播放状态推出去。
+     * 结束一起听：立刻停掉远端对齐。有同伴时本机暂停；空房间保持播放。
+     * 不 seek、不换歌。须在关房网络请求之前调用，避免最后一次 poll/pause 再把进度或播放状态推出去。
      */
     private fun freezeLocalPlayback() {
         leavingRoom = true
@@ -998,7 +1132,9 @@ class ListenTogetherController(
         pollJob?.cancel()
         pollJob = null
         suppressLocalUntil = SystemClock.elapsedRealtime() + 8_000L
-        playback.setPlayWhenReady(false)
+        if (listenShouldPauseOnRoomEnd(_ui.value.memberCount)) {
+            playback.setPlayWhenReady(false)
+        }
     }
 
     private fun fail(e: Exception) {

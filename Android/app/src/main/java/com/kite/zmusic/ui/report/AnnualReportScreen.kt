@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -42,11 +44,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -65,7 +71,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.runtime.key
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -150,6 +155,8 @@ fun AnnualReportScreen(
                     ui = ui,
                     contentBottomInset = contentBottomInset,
                     reduceMotion = reduceMotion,
+                    landscape = LocalConfiguration.current.orientation ==
+                        Configuration.ORIENTATION_LANDSCAPE,
                     onPlayTracks = onPlayTracks,
                     onOpenArtist = onOpenArtist,
                 )
@@ -174,17 +181,23 @@ private fun KeyedReportPager(
     ui: AnnualReportUi,
     contentBottomInset: Dp,
     reduceMotion: Boolean,
+    landscape: Boolean,
     onPlayTracks: (List<TrackRow>, Int, Long?, String?) -> Unit,
     onOpenArtist: (Long, String, String?) -> Unit,
 ) {
-    key(year) {
-        val pager = rememberPagerState { chapters.size }
+    var page by rememberSaveable(year) { mutableIntStateOf(0) }
+    key(year, landscape) {
+        val pager = rememberPagerState(
+            initialPage = page.coerceIn(0, (chapters.size - 1).coerceAtLeast(0)),
+        ) { chapters.size }
+        LaunchedEffect(pager.currentPage) { page = pager.currentPage }
         ReportPager(
             pager = pager,
             chapters = chapters,
             ui = ui,
             contentBottomInset = contentBottomInset,
             reduceMotion = reduceMotion,
+            landscape = landscape,
             onPlayTracks = onPlayTracks,
             onOpenArtist = onOpenArtist,
         )
@@ -198,24 +211,21 @@ private fun ReportPager(
     ui: AnnualReportUi,
     contentBottomInset: Dp,
     reduceMotion: Boolean,
+    landscape: Boolean,
     onPlayTracks: (List<TrackRow>, Int, Long?, String?) -> Unit,
     onOpenArtist: (Long, String, String?) -> Unit,
 ) {
-    val landscape =
-        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     Box(Modifier.fillMaxSize()) {
-        VerticalPager(
-            state = pager,
-            modifier = Modifier.fillMaxSize(),
-            beyondViewportPageCount = 1,
-        ) { index ->
+        val pagerModifier = Modifier
+            .fillMaxSize()
+            .clipToBounds()
+        val pageContent: @Composable (Int) -> Unit = { index ->
             val chapter = chapters[index]
             val pageOffset = pager.currentPageOffsetFraction + (pager.currentPage - index)
-            val current = pager.currentPage == index
             ChapterPage(
                 chapter = chapter,
                 ui = ui,
-                current = current,
+                current = pager.currentPage == index,
                 pageOffset = pageOffset,
                 reduceMotion = reduceMotion,
                 landscape = landscape,
@@ -224,12 +234,32 @@ private fun ReportPager(
                 onOpenArtist = onOpenArtist,
             )
         }
+        if (landscape) {
+            HorizontalPager(
+                state = pager,
+                modifier = pagerModifier,
+                beyondViewportPageCount = 0,
+            ) { pageContent(it) }
+        } else {
+            VerticalPager(
+                state = pager,
+                modifier = pagerModifier,
+                beyondViewportPageCount = 0,
+            ) { pageContent(it) }
+        }
         ChapterRail(
             count = chapters.size,
             current = pager.currentPage,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 10.dp),
+            landscape = landscape,
+            modifier = if (landscape) {
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = contentBottomInset + 10.dp)
+            } else {
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 10.dp)
+            },
         )
     }
 }
@@ -250,26 +280,71 @@ private fun ChapterPage(
     val pad = Modifier
         .fillMaxSize()
         .graphicsLayer {
-            translationY = lift * 36f
-            alpha = (1f - kotlin.math.abs(lift) * 0.18f).coerceIn(0.4f, 1f)
+            val p = kotlin.math.abs(lift)
+            alpha = (1f - p * 0.12f).coerceIn(0.55f, 1f)
+            val s = 1f - p * 0.035f
+            scaleX = s
+            scaleY = s
         }
         .padding(
             start = if (landscape) 28.dp else 22.dp,
-            end = if (landscape) 36.dp else 28.dp,
-            top = 92.dp,
-            bottom = contentBottomInset + 18.dp,
+            end = if (landscape) 28.dp else 28.dp,
+            top = if (landscape) 64.dp else 92.dp,
+            bottom = if (landscape) {
+                contentBottomInset + 36.dp
+            } else {
+                contentBottomInset + 18.dp
+            },
         )
     val report = ui.report
-    when (chapter) {
-        AnnualChapter.Cover -> CoverPage(ui.year, ui.nickname, report, current, reduceMotion, pad)
-        AnnualChapter.Time -> TimePage(report, current, reduceMotion, pad)
-        AnnualChapter.Volume -> VolumePage(report, current, reduceMotion, pad)
-        AnnualChapter.Crown -> CrownPage(report, current, reduceMotion, onPlayTracks, pad)
-        AnnualChapter.Rank -> RankPage(report, current, reduceMotion, landscape, onPlayTracks, pad)
-        AnnualChapter.Artists -> ArtistsPage(report, current, reduceMotion, onOpenArtist, pad)
-        AnnualChapter.Styles -> StylesPage(report, current, reduceMotion, pad)
-        AnnualChapter.Hours -> HoursPage(report, current, reduceMotion, pad)
-        AnnualChapter.Close -> ClosePage(ui.year, ui.nickname, report, current, reduceMotion, pad)
+    Box(Modifier.fillMaxSize().clipToBounds()) {
+        when (chapter) {
+            AnnualChapter.Cover -> CoverPage(
+                ui.year, ui.nickname, report, current, reduceMotion, landscape, pad,
+            )
+            AnnualChapter.Time -> TimePage(report, current, reduceMotion, landscape, pad)
+            AnnualChapter.Volume -> VolumePage(report, current, reduceMotion, landscape, pad)
+            AnnualChapter.Crown -> CrownPage(
+                report, current, reduceMotion, landscape, onPlayTracks, pad,
+            )
+            AnnualChapter.Rank -> RankPage(
+                report, current, reduceMotion, landscape, onPlayTracks, pad,
+            )
+            AnnualChapter.Artists -> ArtistsPage(
+                report, current, reduceMotion, landscape, onOpenArtist, pad,
+            )
+            AnnualChapter.Styles -> StylesPage(report, current, reduceMotion, landscape, pad)
+            AnnualChapter.Hours -> HoursPage(report, current, reduceMotion, landscape, pad)
+            AnnualChapter.Close -> ClosePage(
+                ui.year, ui.nickname, report, current, reduceMotion, landscape, pad,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LandscapeSpread(
+    modifier: Modifier,
+    start: @Composable () -> Unit,
+    end: @Composable () -> Unit,
+) {
+    Row(
+        modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(28.dp),
+    ) {
+        Box(
+            Modifier
+                .weight(0.92f)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center,
+        ) { start() }
+        Box(
+            Modifier
+                .weight(1.08f)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.CenterStart,
+        ) { end() }
     }
 }
 
@@ -280,16 +355,10 @@ private fun CoverPage(
     report: AnnualReport,
     current: Boolean,
     reduceMotion: Boolean,
+    landscape: Boolean,
     modifier: Modifier,
 ) {
-    val spin = rememberInfiniteTransition(label = "label")
-    val rot by spin.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(64000, easing = LinearEasing)),
-        label = "labelRot",
-    )
-    Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
+    val header = @Composable {
         Appear(current, reduceMotion, 0) {
             Column {
                 Text("ANNUAL PRESSING", style = Kicker)
@@ -309,50 +378,17 @@ private fun CoverPage(
                 )
             }
         }
+    }
+    val vinyl = @Composable {
         Appear(current, reduceMotion, 80) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Canvas(
-                    Modifier
-                        .size(248.dp)
-                        .graphicsLayer { rotationZ = if (reduceMotion) 0f else rot * 0.15f },
-                ) {
-                    val c = center
-                    var r = size.minDimension / 2f
-                    var i = 0
-                    while (r > 58.dp.toPx()) {
-                        drawCircle(
-                            color = AnnualTone.Copper.copy(alpha = if (i % 4 == 0) 0.28f else 0.08f),
-                            radius = r,
-                            center = c,
-                            style = Stroke(1.1f),
-                        )
-                        r -= 6.5.dp.toPx()
-                        i++
-                    }
-                    drawCircle(AnnualTone.Wine, radius = 54.dp.toPx(), center = c)
-                    drawCircle(
-                        AnnualTone.Copper.copy(alpha = 0.95f),
-                        radius = 54.dp.toPx(),
-                        center = c,
-                        style = Stroke(2.6.dp.toPx()),
-                    )
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = year.toString(),
-                        color = AnnualTone.Paper,
-                        fontSize = 44.sp,
-                        fontFamily = FontFamily.Serif,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text("MASTER", color = AnnualTone.Copper, fontSize = 10.sp, letterSpacing = 4.sp)
-                }
-            }
+            CoverVinyl(year, reduceMotion)
         }
+    }
+    val footer = @Composable {
         Appear(current, reduceMotion, 160) {
             Column {
                 if (report.songs.isNotEmpty()) {
-                    CoverStrip(report.songs.take(8).map { it.coverUrl })
+                    CoverStrip(report.songs.take(if (landscape) 6 else 8).map { it.coverUrl })
                     Spacer(Modifier.height(12.dp))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -370,13 +406,88 @@ private fun CoverPage(
                         t("关键词 · %s", report.keyword)
                     },
                     color = AnnualTone.Paper,
-                    fontSize = 18.sp,
+                    fontSize = if (landscape) 16.sp else 18.sp,
                     fontFamily = FontFamily.Serif,
-                    lineHeight = 26.sp,
+                    lineHeight = if (landscape) 22.sp else 26.sp,
                 )
                 Spacer(Modifier.height(8.dp))
-                Text(t("上滑翻开 · 共 %s 面", AnnualReportLogic.chapters(report).size), color = AnnualTone.Mist, fontSize = 12.sp)
+                Text(
+                    text = if (landscape) {
+                        t("侧滑翻开 · 共 %s 面", AnnualReportLogic.chapters(report).size)
+                    } else {
+                        t("上滑翻开 · 共 %s 面", AnnualReportLogic.chapters(report).size)
+                    },
+                    color = AnnualTone.Mist,
+                    fontSize = 12.sp,
+                )
             }
+        }
+    }
+    if (landscape) {
+        LandscapeSpread(
+            modifier = modifier,
+            start = { vinyl() },
+            end = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    header()
+                    footer()
+                }
+            },
+        )
+    } else {
+        Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
+            header()
+            vinyl()
+            footer()
+        }
+    }
+}
+
+@Composable
+private fun CoverVinyl(year: Int, reduceMotion: Boolean) {
+    val spin = rememberInfiniteTransition(label = "label")
+    val rot by spin.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(64000, easing = LinearEasing)),
+        label = "labelRot",
+    )
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Canvas(
+            Modifier
+                .size(248.dp)
+                .graphicsLayer { rotationZ = if (reduceMotion) 0f else rot * 0.15f },
+        ) {
+            val c = center
+            var r = size.minDimension / 2f
+            var i = 0
+            while (r > 58.dp.toPx()) {
+                drawCircle(
+                    color = AnnualTone.Copper.copy(alpha = if (i % 4 == 0) 0.28f else 0.08f),
+                    radius = r,
+                    center = c,
+                    style = Stroke(1.1f),
+                )
+                r -= 6.5.dp.toPx()
+                i++
+            }
+            drawCircle(AnnualTone.Wine, radius = 54.dp.toPx(), center = c)
+            drawCircle(
+                AnnualTone.Copper.copy(alpha = 0.95f),
+                radius = 54.dp.toPx(),
+                center = c,
+                style = Stroke(2.6.dp.toPx()),
+            )
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = year.toString(),
+                color = AnnualTone.Paper,
+                fontSize = 44.sp,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold,
+            )
+            Text("MASTER", color = AnnualTone.Copper, fontSize = 10.sp, letterSpacing = 4.sp)
         }
     }
 }
@@ -386,13 +497,14 @@ private fun TimePage(
     report: AnnualReport,
     current: Boolean,
     reduceMotion: Boolean,
+    landscape: Boolean,
     modifier: Modifier,
 ) {
     val parts = AnnualReportLogic.durationParts(report.listenDurationMs ?: 0L)
     val shown = rememberCounting(parts.hours, current, reduceMotion)
     val yearHours = 24L * 365L
     val share = (parts.hours.toFloat() / yearHours.toFloat()).coerceIn(0.02f, 1f)
-    Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
+    val headline = @Composable {
         Appear(current, reduceMotion, 0) {
             Column {
                 Text("LISTENING TIME", style = Kicker)
@@ -400,16 +512,18 @@ private fun TimePage(
                 Text(t("把一年听成连续的时间"), color = AnnualTone.Mist, fontSize = 13.sp)
             }
         }
+    }
+    val figure = @Composable {
         Appear(current, reduceMotion, 70) {
             Column {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         text = shown.toString(),
                         color = AnnualTone.Paper,
-                        fontSize = 78.sp,
+                        fontSize = if (landscape) 72.sp else 78.sp,
                         fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold,
-                        lineHeight = 78.sp,
+                        lineHeight = if (landscape) 72.sp else 78.sp,
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
@@ -429,6 +543,8 @@ private fun TimePage(
                 )
             }
         }
+    }
+    val notes = @Composable {
         Appear(current, reduceMotion, 140) {
             Column {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -449,6 +565,24 @@ private fun TimePage(
             }
         }
     }
+    if (landscape) {
+        LandscapeSpread(
+            modifier = modifier,
+            start = { figure() },
+            end = {
+                Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                    headline()
+                    notes()
+                }
+            },
+        )
+    } else {
+        Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
+            headline()
+            figure()
+            notes()
+        }
+    }
 }
 
 @Composable
@@ -456,6 +590,7 @@ private fun VolumePage(
     report: AnnualReport,
     current: Boolean,
     reduceMotion: Boolean,
+    landscape: Boolean,
     modifier: Modifier,
 ) {
     val plays = rememberCounting(report.playCount ?: 0L, current, reduceMotion)
@@ -522,21 +657,21 @@ private fun VolumePage(
             if (report.songs.isNotEmpty()) {
                 Appear(current, reduceMotion, 120) {
                     CoverWall(
-                        urls = report.songs.take(9).map { it.coverUrl },
+                        urls = report.songs.take(if (landscape) 6 else 9).map { it.coverUrl },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(168.dp),
+                            .height(if (landscape) 110.dp else 132.dp),
                     )
                 }
                 Spacer(Modifier.height(12.dp))
                 Appear(current, reduceMotion, 150) {
                     VolumeSpectrum(
-                        songs = report.songs.take(16),
+                        songs = report.songs.take(if (landscape) 12 else 16),
                         maxPlay = maxPlay,
                         pulse = if (reduceMotion) 0.8f else eq,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(64.dp),
+                            .height(if (landscape) 52.dp else 64.dp),
                     )
                 }
                 Spacer(Modifier.height(12.dp))
@@ -545,7 +680,7 @@ private fun VolumePage(
                 Column {
                     Text(t("TOP CUTS 波形"), color = AnnualTone.Copper, fontSize = 11.sp, letterSpacing = 2.sp)
                     Spacer(Modifier.height(8.dp))
-                    report.songs.take(7).forEach { song ->
+                    report.songs.take(if (landscape) 5 else 6).forEach { song ->
                         MiniWaveRow(song, maxPlay)
                         Spacer(Modifier.height(7.dp))
                     }
@@ -586,6 +721,7 @@ private fun CrownPage(
     report: AnnualReport,
     current: Boolean,
     reduceMotion: Boolean,
+    landscape: Boolean,
     onPlayTracks: (List<TrackRow>, Int, Long?, String?) -> Unit,
     modifier: Modifier,
 ) {
@@ -598,42 +734,15 @@ private fun CrownPage(
         animationSpec = infiniteRepeatable(tween(420, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "eqPulse",
     )
-    Box(Modifier.fillMaxSize()) {
-        UrlImage(
-            url = song.coverUrl,
-            contentDescription = song.name,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { scaleX = 1.08f; scaleY = 1.08f },
-            contentScale = ContentScale.Crop,
-            showPlaceholder = false,
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to AnnualTone.Void.copy(alpha = 0.62f),
-                        0.38f to AnnualTone.Void.copy(alpha = 0.18f),
-                        1f to AnnualTone.Void.copy(alpha = 0.94f),
-                    ),
-                ),
-        )
-        report.songs.drop(1).take(3).forEachIndexed { i, extra ->
-            UrlImage(
-                url = extra.coverUrl,
-                contentDescription = null,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 108.dp, end = 18.dp)
-                    .offset(x = ((i - 1) * 18).dp, y = (i * 14).dp)
-                    .size(54.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, AnnualTone.Copper.copy(alpha = 0.45f), RoundedCornerShape(6.dp)),
-                contentScale = ContentScale.Crop,
-            )
-        }
-        Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
+    val copy = @Composable {
+        Column(
+            modifier = if (landscape) Modifier else Modifier.fillMaxSize(),
+            verticalArrangement = if (landscape) {
+                Arrangement.Center
+            } else {
+                Arrangement.SpaceBetween
+            },
+        ) {
             Appear(current, reduceMotion, 0) {
                 Column {
                     Text("SIDE A · 01", style = Kicker)
@@ -648,10 +757,10 @@ private fun CrownPage(
                     Text(
                         text = song.name,
                         color = AnnualTone.Paper,
-                        fontSize = 32.sp,
+                        fontSize = if (landscape) 28.sp else 32.sp,
                         fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold,
-                        lineHeight = 40.sp,
+                        lineHeight = if (landscape) 34.sp else 40.sp,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(song.artists.ifBlank { t("未知歌手") }, color = AnnualTone.Mist, fontSize = 15.sp)
@@ -673,6 +782,63 @@ private fun CrownPage(
             }
         }
     }
+    if (landscape) {
+        LandscapeSpread(
+            modifier = modifier,
+            start = {
+                Box {
+                    UrlImage(
+                        url = song.coverUrl,
+                        contentDescription = song.name,
+                        modifier = Modifier
+                            .size(240.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, AnnualTone.Copper.copy(alpha = 0.45f), RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+            },
+            end = { copy() },
+        )
+    } else {
+        Box(Modifier.fillMaxSize()) {
+            UrlImage(
+                url = song.coverUrl,
+                contentDescription = song.name,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                showPlaceholder = false,
+            )
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            0f to AnnualTone.Void.copy(alpha = 0.62f),
+                            0.38f to AnnualTone.Void.copy(alpha = 0.18f),
+                            1f to AnnualTone.Void.copy(alpha = 0.94f),
+                        ),
+                    ),
+            )
+            report.songs.drop(1).take(3).forEachIndexed { i, extra ->
+                UrlImage(
+                    url = extra.coverUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 108.dp, end = 18.dp)
+                        .offset(x = ((i - 1) * 18).dp, y = (i * 14).dp)
+                        .size(54.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .border(1.dp, AnnualTone.Copper.copy(alpha = 0.45f), RoundedCornerShape(6.dp)),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
+                copy()
+            }
+        }
+    }
 }
 
 @Composable
@@ -685,7 +851,7 @@ private fun RankPage(
     modifier: Modifier,
 ) {
     val queue = remember(report.songs) { report.toTrackRows() }
-    val rows = report.songs.take(if (landscape) 10 else 8)
+    val rows = report.songs.take(if (landscape) 8 else 8)
     val maxPlay = (rows.maxOfOrNull { it.playCount } ?: 1L).coerceAtLeast(1L)
     Column(modifier) {
         Appear(current, reduceMotion, 0) {
@@ -696,26 +862,75 @@ private fun RankPage(
             }
         }
         Spacer(Modifier.height(14.dp))
-        rows.forEachIndexed { index, song ->
-            Appear(current, reduceMotion, 40 + index * 45) {
-                RankRow(
-                    index = index + 1,
-                    song = song,
-                    maxPlay = maxPlay,
-                    onPlay = {
-                        val idx = queue.indexOfFirst { it.id == song.id }
-                        if (idx >= 0) onPlayTracks(queue, idx, null, t("%s 年度报告", report.year))
-                    },
-                )
+        if (landscape) {
+            val left = rows.take(4)
+            val right = rows.drop(4)
+            Row(
+                Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(22.dp),
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    left.forEachIndexed { index, song ->
+                        Appear(current, reduceMotion, 40 + index * 45) {
+                            RankRow(
+                                index = index + 1,
+                                song = song,
+                                maxPlay = maxPlay,
+                                compact = true,
+                                onPlay = {
+                                    val idx = queue.indexOfFirst { it.id == song.id }
+                                    if (idx >= 0) onPlayTracks(queue, idx, null, t("%s 年度报告", report.year))
+                                },
+                            )
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    right.forEachIndexed { index, song ->
+                        Appear(current, reduceMotion, 40 + (index + 4) * 45) {
+                            RankRow(
+                                index = index + 5,
+                                song = song,
+                                maxPlay = maxPlay,
+                                compact = true,
+                                onPlay = {
+                                    val idx = queue.indexOfFirst { it.id == song.id }
+                                    if (idx >= 0) onPlayTracks(queue, idx, null, t("%s 年度报告", report.year))
+                                },
+                            )
+                        }
+                    }
+                }
             }
-            Spacer(Modifier.height(8.dp))
+        } else {
+            rows.forEachIndexed { index, song ->
+                Appear(current, reduceMotion, 40 + index * 45) {
+                    RankRow(
+                        index = index + 1,
+                        song = song,
+                        maxPlay = maxPlay,
+                        onPlay = {
+                            val idx = queue.indexOfFirst { it.id == song.id }
+                            if (idx >= 0) onPlayTracks(queue, idx, null, t("%s 年度报告", report.year))
+                        },
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+            }
         }
     }
 }
 
 @Composable
-private fun RankRow(index: Int, song: AnnualSong, maxPlay: Long, onPlay: () -> Unit) {
+private fun RankRow(
+    index: Int,
+    song: AnnualSong,
+    maxPlay: Long,
+    onPlay: () -> Unit,
+    compact: Boolean = false,
+) {
     val t = (song.playCount.toFloat() / maxPlay.toFloat()).coerceIn(0.08f, 1f)
+    val cover = if (compact) 40.dp else 48.dp
     Column(
         Modifier
             .fillMaxWidth()
@@ -730,14 +945,14 @@ private fun RankRow(index: Int, song: AnnualSong, maxPlay: Long, onPlay: () -> U
                 text = index.toString().padStart(2, '0'),
                 color = AnnualTone.Copper,
                 fontFamily = FontFamily.Serif,
-                fontSize = 20.sp,
-                modifier = Modifier.width(36.dp),
+                fontSize = if (compact) 16.sp else 20.sp,
+                modifier = Modifier.width(if (compact) 28.dp else 36.dp),
             )
             UrlImage(
                 url = song.coverUrl,
                 contentDescription = song.name,
                 modifier = Modifier
-                    .size(48.dp)
+                    .size(cover)
                     .clip(RoundedCornerShape(4.dp)),
                 contentScale = ContentScale.Crop,
             )
@@ -782,6 +997,7 @@ private fun ArtistsPage(
     report: AnnualReport,
     current: Boolean,
     reduceMotion: Boolean,
+    landscape: Boolean,
     onOpenArtist: (Long, String, String?) -> Unit,
     modifier: Modifier,
 ) {
@@ -812,6 +1028,38 @@ private fun ArtistsPage(
                 )
             }
         }
+        if (landscape) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                artists.chunked(4).forEach { row ->
+                    Appear(current, reduceMotion, 40) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            row.forEach { artist ->
+                                ArtistDot(
+                                    artist = artist,
+                                    featured = artist.id == artists.firstOrNull()?.id,
+                                    compact = true,
+                                    onClick = {
+                                        if (artist.id > 0L) {
+                                            onOpenArtist(artist.id, artist.name, artist.coverUrl)
+                                        }
+                                    },
+                                    modifier = Modifier,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
         BoxWithConstraints(
             Modifier
                 .fillMaxWidth()
@@ -848,6 +1096,7 @@ private fun ArtistsPage(
                 )
             }
         }
+        }
         Appear(current, reduceMotion, 120) {
             Text(
                 text = artists.take(4).joinToString("  ·  ") { it.name },
@@ -866,11 +1115,17 @@ private fun ArtistDot(
     featured: Boolean,
     onClick: () -> Unit,
     modifier: Modifier,
+    compact: Boolean = false,
 ) {
-    val size = if (featured) 76.dp else 58.dp
+    val size = when {
+        compact && featured -> 72.dp
+        compact -> 56.dp
+        featured -> 76.dp
+        else -> 58.dp
+    }
     Column(
         modifier
-            .width(84.dp)
+            .width(if (compact) 92.dp else 84.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -910,10 +1165,11 @@ private fun StylesPage(
     report: AnnualReport,
     current: Boolean,
     reduceMotion: Boolean,
+    landscape: Boolean,
     modifier: Modifier,
 ) {
     val max = (report.styles.maxOfOrNull { it.playCount } ?: 1L).coerceAtLeast(1L)
-    Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
+    val intro = @Composable {
         Appear(current, reduceMotion, 0) {
             Column {
                 Text("GROOVE", style = Kicker)
@@ -922,7 +1178,7 @@ private fun StylesPage(
                     Text(
                         text = report.keyword!!,
                         color = AnnualTone.Paper,
-                        fontSize = 40.sp,
+                        fontSize = if (landscape) 32.sp else 40.sp,
                         fontFamily = FontFamily.Serif,
                         fontWeight = FontWeight.Bold,
                     )
@@ -937,16 +1193,20 @@ private fun StylesPage(
                 }
             }
         }
+    }
+    val bars = @Composable {
         Appear(current, reduceMotion, 80) {
             Column {
-                report.styles.take(8).forEachIndexed { i, style ->
+                report.styles.take(if (landscape) 6 else 8).forEachIndexed { i, style ->
                     Appear(current, reduceMotion, 80 + i * 40) {
                         StyleBar(style, max)
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(if (landscape) 8.dp else 10.dp))
                 }
             }
         }
+    }
+    val facts = @Composable {
         if (report.facts.isNotEmpty()) {
             Appear(current, reduceMotion, 200) {
                 Column {
@@ -956,6 +1216,24 @@ private fun StylesPage(
                     }
                 }
             }
+        }
+    }
+    if (landscape) {
+        LandscapeSpread(
+            modifier = modifier,
+            start = { intro() },
+            end = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    bars()
+                    facts()
+                }
+            },
+        )
+    } else {
+        Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
+            intro()
+            bars()
+            facts()
         }
     }
 }
@@ -989,37 +1267,78 @@ private fun HoursPage(
     report: AnnualReport,
     current: Boolean,
     reduceMotion: Boolean,
+    landscape: Boolean,
     modifier: Modifier,
 ) {
     val peak = AnnualReportLogic.peakHourLabel(report.hours)
     val parts = dayParts(report.hours)
-    Column(
-        modifier,
-        verticalArrangement = Arrangement.SpaceBetween,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Appear(current, reduceMotion, 0) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("CLOCK", style = Kicker)
-                Spacer(Modifier.height(4.dp))
-                Text(t("针最常在哪个钟点落下"), color = AnnualTone.Mist, fontSize = 13.sp)
+    val clock = @Composable {
+        Appear(current, reduceMotion, 70) {
+            HourClock(report.hours, Modifier.size(if (landscape) 200.dp else 228.dp))
+        }
+    }
+    val copy = @Composable {
+        Column(
+            horizontalAlignment = if (landscape) Alignment.Start else Alignment.CenterHorizontally,
+        ) {
+            Appear(current, reduceMotion, 0) {
+                Column(
+                    horizontalAlignment = if (landscape) Alignment.Start else Alignment.CenterHorizontally,
+                ) {
+                    Text("CLOCK", style = Kicker)
+                    Spacer(Modifier.height(4.dp))
+                    Text(t("针最常在哪个钟点落下"), color = AnnualTone.Mist, fontSize = 13.sp)
+                }
+            }
+            Spacer(Modifier.height(if (landscape) 18.dp else 0.dp))
+            Appear(current, reduceMotion, 140) {
+                Column(
+                    horizontalAlignment = if (landscape) Alignment.Start else Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = peak?.let { t("最常落在%s", it) } ?: t("听歌的钟点散落在一天里"),
+                        color = AnnualTone.Paper,
+                        fontSize = 18.sp,
+                        fontFamily = FontFamily.Serif,
+                        textAlign = if (landscape) TextAlign.Start else TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        parts.forEach { MetaChip("${it.label} ${it.pct}") }
+                    }
+                }
             }
         }
-        Appear(current, reduceMotion, 70) {
-            HourClock(report.hours, Modifier.size(228.dp))
-        }
-        Appear(current, reduceMotion, 140) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = peak?.let { t("最常落在%s", it) } ?: t("听歌的钟点散落在一天里"),
-                    color = AnnualTone.Paper,
-                    fontSize = 18.sp,
-                    fontFamily = FontFamily.Serif,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    parts.forEach { MetaChip("${it.label} ${it.pct}") }
+    }
+    if (landscape) {
+        LandscapeSpread(modifier = modifier, start = { clock() }, end = { copy() })
+    } else {
+        Column(
+            modifier,
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Appear(current, reduceMotion, 0) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("CLOCK", style = Kicker)
+                    Spacer(Modifier.height(4.dp))
+                    Text(t("针最常在哪个钟点落下"), color = AnnualTone.Mist, fontSize = 13.sp)
+                }
+            }
+            clock()
+            Appear(current, reduceMotion, 140) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = peak?.let { t("最常落在%s", it) } ?: t("听歌的钟点散落在一天里"),
+                        color = AnnualTone.Paper,
+                        fontSize = 18.sp,
+                        fontFamily = FontFamily.Serif,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        parts.forEach { MetaChip("${it.label} ${it.pct}") }
+                    }
                 }
             }
         }
@@ -1064,19 +1383,17 @@ private fun ClosePage(
     report: AnnualReport,
     current: Boolean,
     reduceMotion: Boolean,
+    landscape: Boolean,
     modifier: Modifier,
 ) {
     val mosaic = report.songs.take(6)
-    Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
-        Appear(current, reduceMotion, 0) {
-            Text("ENDLESS SIDE", style = Kicker)
-        }
+    val yearBlock = @Composable {
         Appear(current, reduceMotion, 70) {
             Column {
                 Text(
                     text = "$year",
                     color = AnnualTone.Paper,
-                    fontSize = 58.sp,
+                    fontSize = if (landscape) 52.sp else 58.sp,
                     fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold,
                 )
@@ -1085,27 +1402,58 @@ private fun ClosePage(
                     color = AnnualTone.Copper,
                     fontSize = 18.sp,
                 )
-                Spacer(Modifier.height(14.dp))
-                if (mosaic.isNotEmpty()) {
-                    CoverStrip(mosaic.map { it.coverUrl })
-                    Spacer(Modifier.height(12.dp))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    report.listenDurationMs?.let {
-                        MetaChip(t("%s 小时", AnnualReportLogic.durationParts(it).hours))
-                    }
-                    report.playCount?.let { MetaChip(t("%s 次", AnnualReportLogic.formatCount(it))) }
-                    report.songs.firstOrNull()?.let { MetaChip(it.name) }
-                }
             }
         }
-        Appear(current, reduceMotion, 160) {
-            Text(
-                text = t("片子可以翻面。年份不会。"),
-                color = AnnualTone.Paper,
-                fontSize = 16.sp,
-                fontFamily = FontFamily.Serif,
-            )
+    }
+    val rest = @Composable {
+        Column {
+            if (mosaic.isNotEmpty()) {
+                CoverStrip(mosaic.map { it.coverUrl })
+                Spacer(Modifier.height(12.dp))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                report.listenDurationMs?.let {
+                    MetaChip(t("%s 小时", AnnualReportLogic.durationParts(it).hours))
+                }
+                report.playCount?.let { MetaChip(t("%s 次", AnnualReportLogic.formatCount(it))) }
+                report.songs.firstOrNull()?.let { MetaChip(it.name) }
+            }
+            Spacer(Modifier.height(16.dp))
+            Appear(current, reduceMotion, 160) {
+                Text(
+                    text = t("片子可以翻面。年份不会。"),
+                    color = AnnualTone.Paper,
+                    fontSize = 16.sp,
+                    fontFamily = FontFamily.Serif,
+                )
+            }
+        }
+    }
+    if (landscape) {
+        LandscapeSpread(
+            modifier = modifier,
+            start = {
+                Column {
+                    Appear(current, reduceMotion, 0) {
+                        Text("ENDLESS SIDE", style = Kicker)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    yearBlock()
+                }
+            },
+            end = { rest() },
+        )
+    } else {
+        Column(modifier, verticalArrangement = Arrangement.SpaceBetween) {
+            Appear(current, reduceMotion, 0) {
+                Text("ENDLESS SIDE", style = Kicker)
+            }
+            Column {
+                yearBlock()
+                Spacer(Modifier.height(14.dp))
+                rest()
+            }
+            Spacer(Modifier.height(1.dp))
         }
     }
 }
@@ -1168,18 +1516,34 @@ private fun TopChrome(
 }
 
 @Composable
-private fun ChapterRail(count: Int, current: Int, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        repeat(count) { i ->
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(if (i == current) 18.dp else 7.dp)
-                    .background(
-                        if (i == current) AnnualTone.Copper else AnnualTone.Mist.copy(alpha = 0.45f),
-                        RoundedCornerShape(99.dp),
-                    ),
-            )
+private fun ChapterRail(count: Int, current: Int, landscape: Boolean, modifier: Modifier) {
+    if (landscape) {
+        Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            repeat(count) { i ->
+                Box(
+                    Modifier
+                        .height(3.dp)
+                        .width(if (i == current) 18.dp else 7.dp)
+                        .background(
+                            if (i == current) AnnualTone.Copper else AnnualTone.Mist.copy(alpha = 0.45f),
+                            RoundedCornerShape(99.dp),
+                        ),
+                )
+            }
+        }
+    } else {
+        Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            repeat(count) { i ->
+                Box(
+                    Modifier
+                        .width(3.dp)
+                        .height(if (i == current) 18.dp else 7.dp)
+                        .background(
+                            if (i == current) AnnualTone.Copper else AnnualTone.Mist.copy(alpha = 0.45f),
+                            RoundedCornerShape(99.dp),
+                        ),
+                )
+            }
         }
     }
 }
@@ -1202,7 +1566,7 @@ private fun PlayChip(label: String, onClick: () -> Unit) {
             imageVector = ZIcons.Play,
             contentDescription = null,
             tint = AnnualTone.Void,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(18.dp),
         )
         Spacer(Modifier.width(6.dp))
         Text(label, color = AnnualTone.Void, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)

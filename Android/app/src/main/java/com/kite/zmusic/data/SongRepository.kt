@@ -57,12 +57,22 @@ class SongRepository(
                 if (cookie.isBlank()) null
                 else runCatching { userClient.ugcSongGet(songId, cookie) }.getOrNull()
             }
+            val detail = async {
+                runCatching { userClient.songDetail(listOf(songId), cookie) }.getOrNull()
+            }
             val summaryJson = summary.await()
             val creatorsJson = creators.await()
             val wikiInfoJson = wikiInfo.await()
             val ugcJson = ugc.await()
-            val page = SongWikiParse.merge(summaryJson, ugcJson, creatorsJson, wikiInfoJson)
-            if (page.isEmpty && summaryJson == null && creatorsJson == null) {
+            val detailJson = detail.await()
+            val page = SongWikiParse.merge(
+                summaryJson,
+                ugcJson,
+                creatorsJson,
+                wikiInfoJson,
+                detailJson,
+            )
+            if (page.isEmpty && summaryJson == null && creatorsJson == null && detailJson == null) {
                 error(t("百科加载失败"))
             }
             page

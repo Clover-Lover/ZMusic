@@ -474,7 +474,7 @@ private fun HistoryCapsule(
                 imageVector = ZIcons.Close,
                 contentDescription = t("删除"),
                 tint = MainPalette.Hint,
-                modifier = Modifier.size(12.dp),
+                modifier = Modifier.size(18.dp),
             )
         }
     }
@@ -996,7 +996,7 @@ private fun SearchSongRow(
                 imageVector = ZIcons.More,
                 contentDescription = t("更多"),
                 tint = MainPalette.Hint,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(22.dp),
             )
         }
     }
@@ -1077,7 +1077,7 @@ private fun SearchPlaylistRow(
                     imageVector = ZIcons.More,
                     contentDescription = t("更多"),
                     tint = MainPalette.Hint,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }

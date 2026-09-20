@@ -27,6 +27,7 @@ import com.kite.zmusic.data.RealtimeCacheController
 import com.kite.zmusic.data.RealtimeCacheMode
 import com.kite.zmusic.data.RealtimeCacheStore
 import com.kite.zmusic.data.PersistentPlaybackStore
+import com.kite.zmusic.data.PrivacyStore
 import com.kite.zmusic.data.LikedPlaylistRepository
 import com.kite.zmusic.data.LyricRepository
 import com.kite.zmusic.data.NcmHomeParse
@@ -35,6 +36,7 @@ import com.kite.zmusic.data.NcmUserClient
 import com.kite.zmusic.data.PersonalFmModeChoice
 import com.kite.zmusic.data.PersonalFmModeStore
 import com.kite.zmusic.data.PlayUrlResolver
+import com.kite.zmusic.data.NcmPlaybackParse
 import com.kite.zmusic.data.SessionRepository
 import com.kite.zmusic.data.TrackRow
 import com.kite.zmusic.data.isNetworkOnline
@@ -87,6 +89,7 @@ class PlaylistCoordinator(
     private val realtimeCacheStore: RealtimeCacheStore,
     private val realtimeCache: RealtimeCacheController,
     private val persistentPlaybackStore: PersistentPlaybackStore,
+    private val privacyStore: PrivacyStore,
     private val userClient: NcmUserClient,
     private val audioOutputController: AudioOutputController,
     private val fmModeStore: PersonalFmModeStore,
@@ -1254,7 +1257,7 @@ class PlaylistCoordinator(
                     if (isUnplayable(t.id)) continue
                     if (urlCache[t.id]?.isFresh() == true) continue
                     if (!hasLocalAudio(t) && !context.isNetworkOnline()) continue
-                    val url = resolvePlayUrl(t, cookie)
+                    val url = resolvePlayUrl(t, cookie, notifyUnlock = false)
                     if (url.isNullOrBlank()) {
                         if (!context.isNetworkOnline()) continue
                         Log.d(TAG, "prefetch url miss → unplayable id=${t.id}")
@@ -1420,7 +1423,7 @@ class PlaylistCoordinator(
                     urlCache[track.id]?.takeIf { it.isFresh() }?.url
                 }
                 if (isRetry) urlCache.remove(track.id)
-                val url = cached ?: resolvePlayUrl(track, cookie)?.also {
+                val url = cached ?: resolvePlayUrl(track, cookie, notifyUnlock = true)?.also {
                     urlCache[track.id] = CachedUrl(it, System.currentTimeMillis())
                 }
                 if (_ui.value.currentTrack?.id != loadGen) return@launch
@@ -1823,13 +1826,17 @@ class PlaylistCoordinator(
             !track.localAudioUri.isNullOrBlank() ||
             downloadAccelIndex.audioUri(track.id) != null
 
-    private suspend fun resolvePlayUrl(track: TrackRow, cookie: String): String? {
+    private suspend fun resolvePlayUrl(
+        track: TrackRow,
+        cookie: String,
+        notifyUnlock: Boolean,
+    ): String? {
         realtimeCache.playUri(track.id, audioQualityStore.current())?.let { return it }
         track.localAudioUri?.takeIf { it.isNotBlank() }?.let { return it }
         downloadAccelIndex.audioUri(track.id)?.let { return it }
         if (track.id <= 0L) return null
         if (!context.isNetworkOnline()) return null
-        return runCatching {
+        val official = runCatching {
             PlayUrlResolver.resolve(
                 userClient = userClient,
                 trackId = track.id,
@@ -1838,6 +1845,22 @@ class PlaylistCoordinator(
             )
         }.onFailure { Log.w(TAG, "resolvePlayUrl failed id=${track.id}", it) }
             .getOrNull()
+        if (!official.isNullOrBlank()) return official
+        if (!privacyStore.songUnlockGrayEnabled()) return null
+        val unlocked = runCatching {
+            NcmPlaybackParse.unblockedSongUrl(
+                userClient.songUrlMatch(track.id, cookie),
+                track.id,
+            )
+        }.onFailure { Log.w(TAG, "songUrlMatch failed id=${track.id}", it) }
+            .getOrNull()
+        if (unlocked.isNullOrBlank()) return null
+        if (notifyUnlock) {
+            withContext(Dispatchers.Main) {
+                context.showIslandNotice(t("已对此歌曲成功解灰"), track.coverUrl)
+            }
+        }
+        return unlocked
     }
 
     private fun pickShuffle(current: Int, size: Int): Int {

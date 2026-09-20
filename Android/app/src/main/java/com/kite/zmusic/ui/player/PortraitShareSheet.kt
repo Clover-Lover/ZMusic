@@ -106,6 +106,7 @@ internal class ShareSheetHostState {
 
 internal data class ShareSheetSpec(
     val contentKey: String,
+    val imageShare: Boolean = true,
     val onPick: (NcmShareTarget) -> Unit,
     val onDismiss: () -> Unit,
 )
@@ -116,12 +117,14 @@ internal fun ShareSheet(
     onPick: (NcmShareTarget) -> Unit,
     onDismiss: () -> Unit,
     contentKey: String,
+    imageShare: Boolean = true,
 ) {
     val host = LocalShareSheetHost.current ?: return
     val onPickUpdated = rememberUpdatedState(onPick)
     val onDismissUpdated = rememberUpdatedState(onDismiss)
     fun currentSpec() = ShareSheetSpec(
         contentKey = contentKey,
+        imageShare = imageShare,
         onPick = { onPickUpdated.value(it) },
         onDismiss = { onDismissUpdated.value() },
     )
@@ -182,6 +185,7 @@ internal fun ShareSheetOverlay(
         )
         PortraitShareSheet(
             onPick = spec.onPick,
+            imageShare = spec.imageShare,
             hazeState = hazeState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -212,6 +216,7 @@ internal fun rememberPortraitShareSheetHeight(): Dp {
 internal fun PortraitShareSheet(
     onPick: (NcmShareTarget) -> Unit,
     hazeState: HazeState? = null,
+    imageShare: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -301,6 +306,13 @@ internal fun PortraitShareSheet(
                     label = t("仅复制链接"),
                     onClick = { onPick(NcmShareTarget.CopyLink) },
                 )
+                if (imageShare) {
+                    ShareVectorAction(
+                        icon = ZIcons.GetApp,
+                        label = t("保存到相册"),
+                        onClick = { onPick(NcmShareTarget.SaveToAlbum) },
+                    )
+                }
             }
         }
     }

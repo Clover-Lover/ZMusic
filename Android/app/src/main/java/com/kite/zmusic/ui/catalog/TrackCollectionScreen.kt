@@ -848,7 +848,7 @@ internal fun CatalogTrackRow(
                     imageVector = ZIcons.More,
                     contentDescription = t("更多"),
                     tint = if (current) MainPalette.Accent.copy(alpha = 0.72f) else MainPalette.Hint,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }
@@ -874,7 +874,7 @@ private fun TrackSelectMark(checked: Boolean) {
                 imageVector = ZIcons.Check,
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(12.dp),
+                modifier = Modifier.size(18.dp),
             )
         }
     }

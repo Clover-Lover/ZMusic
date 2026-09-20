@@ -24,6 +24,7 @@ internal data class SongWikiPage(
     val paragraphs: List<String> = emptyList(),
     val similar: List<SongWikiCoverItem> = emptyList(),
     val playlists: List<SongWikiCoverItem> = emptyList(),
+    val album: SongWikiCoverItem? = null,
 ) {
     val isEmpty: Boolean
         get() = facts.isEmpty() &&
@@ -31,7 +32,8 @@ internal data class SongWikiPage(
             notes.isEmpty() &&
             paragraphs.isEmpty() &&
             similar.isEmpty() &&
-            playlists.isEmpty()
+            playlists.isEmpty() &&
+            album == null
 
     val hasInfo: Boolean
         get() = facts.isNotEmpty() || chips.isNotEmpty() || notes.isNotEmpty() || paragraphs.isNotEmpty()
@@ -48,6 +50,7 @@ internal object SongWikiParse {
         ugc: JSONObject?,
         creators: JSONObject?,
         wikiInfo: JSONObject?,
+        songDetail: JSONObject? = null,
     ): SongWikiPage {
         val facts = ArrayList<SongWikiFact>()
         val chips = ArrayList<String>()
@@ -81,6 +84,38 @@ internal object SongWikiParse {
             paragraphs = paragraphs.distinct(),
             similar = similar.distinctBy { it.id },
             playlists = playlists.distinctBy { it.id },
+            album = albumFromSongDetail(songDetail),
+        )
+    }
+
+    internal fun albumFromSongDetail(json: JSONObject?): SongWikiCoverItem? {
+        if (json == null) return null
+        val songs = json.optJSONArray("songs")
+            ?: json.optJSONObject("data")?.optJSONArray("songs")
+            ?: return null
+        val song = songs.optJSONObject(0) ?: return null
+        val al = song.optJSONObject("al") ?: song.optJSONObject("album") ?: return null
+        val id = jsonLong(al, "id")
+        if (id <= 0L) return null
+        val title = cleanText(al.opt("name")) ?: return null
+        val cover = NcmLibraryParse.ncmHttpsImage(
+            al.optString("picUrl").ifBlank { al.optString("blurPicUrl") },
+        )
+        val artist = cleanText(al.optJSONObject("artist")?.opt("name"))
+            ?: run {
+                val ar = song.optJSONArray("ar") ?: song.optJSONArray("artists")
+                if (ar == null) null
+                else buildList {
+                    for (i in 0 until ar.length()) {
+                        cleanText(ar.optJSONObject(i)?.opt("name"))?.let { add(it) }
+                    }
+                }.joinToString(" / ").takeIf { it.isNotBlank() }
+            }
+        return SongWikiCoverItem(
+            id = id,
+            title = title,
+            subtitle = artist.orEmpty(),
+            coverUrl = cover,
         )
     }
 

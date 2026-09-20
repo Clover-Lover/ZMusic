@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.kite.zmusic.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,13 +14,15 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * 社区登录提交入口的主机与端口（明文 HTTP）。默认公网 IP:80。
+ * 社区登录提交入口的主机与端口（明文 HTTP）。
+ * 编译期默认来自 `BuildConfig`（`Android/local.properties` 的 community.server.*）；
+ * 开源仓库不内置公网地址。
  */
 class CommunityServerStore(context: Context) {
 
     private val prefs: SharedPreferences = createPrefs(context.applicationContext)
 
-    private val _endpoint = MutableStateFlow(readStored() ?: DEFAULT)
+    private val _endpoint = MutableStateFlow(readStored() ?: defaultEndpoint())
     val endpoint: StateFlow<ServerConfigRepository.Endpoint> = _endpoint.asStateFlow()
 
     fun current(): ServerConfigRepository.Endpoint = _endpoint.value
@@ -54,7 +57,16 @@ class CommunityServerStore(context: Context) {
     }
 
     companion object {
-        val DEFAULT = ServerConfigRepository.Endpoint("120.27.140.91", 80)
+        /** 编译期默认；来自 local.properties，仓库内无公网 IP。 */
+        val DEFAULT: ServerConfigRepository.Endpoint
+            get() = defaultEndpoint()
+
+        fun defaultEndpoint(): ServerConfigRepository.Endpoint {
+            val host = BuildConfig.COMMUNITY_SERVER_HOST.trim()
+            val port = BuildConfig.COMMUNITY_SERVER_PORT.coerceIn(1, 65535)
+            return ServerConfigRepository.Endpoint(host, port)
+        }
+
         private const val PREFS_NAME = "zmusic_community_server"
         private const val KEY_HOST = "community_host"
         private const val KEY_PORT = "community_port"

@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,6 +52,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.kite.zmusic.ui.icons.ZIconSize
+import com.kite.zmusic.ui.icons.ZIcons
 import com.kite.zmusic.ui.theme.MainPalette
 import com.kite.zmusic.i18n.t
 
@@ -180,23 +183,12 @@ private fun LegalPage(
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Canvas(Modifier.size(18.dp)) {
-                    val stroke = 2.2.dp.toPx()
-                    drawLine(
-                        color = Ink,
-                        start = Offset(size.width * 0.62f, size.height * 0.18f),
-                        end = Offset(size.width * 0.28f, size.height * 0.5f),
-                        strokeWidth = stroke,
-                        cap = StrokeCap.Round,
-                    )
-                    drawLine(
-                        color = Ink,
-                        start = Offset(size.width * 0.28f, size.height * 0.5f),
-                        end = Offset(size.width * 0.62f, size.height * 0.82f),
-                        strokeWidth = stroke,
-                        cap = StrokeCap.Round,
-                    )
-                }
+                Icon(
+                    imageVector = ZIcons.ChevronLeft,
+                    contentDescription = null,
+                    tint = Ink,
+                    modifier = Modifier.size(ZIconSize.Standard),
+                )
             }
             Text(
                 text = loginLegalTitle(kind),

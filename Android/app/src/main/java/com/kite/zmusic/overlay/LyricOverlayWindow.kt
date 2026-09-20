@@ -2,11 +2,15 @@ package com.kite.zmusic.overlay
 
 import android.app.Application
 import android.content.ComponentCallbacks
+import android.content.Context
 import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Point
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.provider.Settings
 import android.view.ContextThemeWrapper
+import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ViewConfiguration
@@ -30,6 +34,12 @@ import com.kite.zmusic.R
 import com.kite.zmusic.data.LyricOverlayPrefs
 import com.kite.zmusic.data.LyricOverlayStore
 import com.kite.zmusic.data.overlayClaimsWindowTouches
+import com.kite.zmusic.data.overlayClampX
+import com.kite.zmusic.data.overlayDefaultX
+import com.kite.zmusic.data.overlayDefaultY
+import com.kite.zmusic.data.overlayDisplaySize
+import com.kite.zmusic.data.overlayFixedWidthPx
+import com.kite.zmusic.data.overlayRemapCoord
 import com.kite.zmusic.data.overlayWakesFromIdle
 import com.kite.zmusic.playback.PlaybackBridge
 import com.kite.zmusic.ui.lyricoverlay.LyricOverlayContent
@@ -44,7 +54,8 @@ internal class LyricOverlayWindow(
     private val store: LyricOverlayStore,
     private val playback: PlaybackBridge,
 ) {
-    private val windowManager = app.getSystemService(WindowManager::class.java)
+    private val overlayContext = createOverlayWindowContext(app)
+    private val windowManager = overlayContext.getSystemService(WindowManager::class.java)
     private var composeView: ComposeView? = null
     private var host: OverlayComposeHost? = null
     private var layoutParams: WindowManager.LayoutParams? = null
@@ -74,7 +85,7 @@ internal class LyricOverlayWindow(
         host.onCreate()
         val lp = createLayoutParams(store.current())
         layoutParams = lp
-        val view = ComposeView(ContextThemeWrapper(app, R.style.Theme_ZMusic)).apply {
+        val view = ComposeView(ContextThemeWrapper(overlayContext, R.style.Theme_ZMusic)).apply {
             setViewTreeLifecycleOwner(host)
             setViewTreeViewModelStoreOwner(host)
             setViewTreeSavedStateRegistryOwner(host)
@@ -140,10 +151,11 @@ internal class LyricOverlayWindow(
             val lp = layoutParams ?: return
             val view = composeView ?: return
             val prefs = store.current()
-            val screen = screenSize()
-            lp.y = clampedY(prefs, remapY(prefs, screen.second))
-            lp.x = clampedX(prefs, remapX(prefs, screen.first))
-            lp.width = windowWidthSpec(prefs)
+            val screen = screenSize(newConfig.orientation)
+            val widthPx = overlayWidthPx(prefs, screen.first)
+            lp.width = windowWidthSpec(prefs, screen.first)
+            lp.y = clampedY(prefs, remapY(prefs, screen.second), screen.second)
+            lp.x = clampedX(remapX(prefs, screen.first), widthPx, screen.first)
             lp.flags = overlayFlags(prefs)
             applyCutoutMode(lp, prefs)
             clearScreenBlur(lp)
@@ -157,22 +169,11 @@ internal class LyricOverlayWindow(
 
     private fun createLayoutParams(prefs: LyricOverlayPrefs): WindowManager.LayoutParams {
         val screen = screenSize()
-        val w = overlayWidthPx(prefs)
-        val x = if (prefs.posX == LyricOverlayPrefs.UNSET) {
-            ((screen.first - w).coerceAtLeast(0) * 0.12f).roundToInt()
-        } else {
-            clampedX(prefs, remapX(prefs, screen.first), w)
-        }
-        val y = clampedY(
-            prefs,
-            if (prefs.posY == LyricOverlayPrefs.UNSET) {
-                (screen.second * 0.18f).roundToInt()
-            } else {
-                remapY(prefs, screen.second)
-            },
-        )
+        val w = overlayWidthPx(prefs, screen.first)
+        val x = clampedX(remapX(prefs, screen.first), w, screen.first)
+        val y = clampedY(prefs, remapY(prefs, screen.second), screen.second)
         return WindowManager.LayoutParams(
-            windowWidthSpec(prefs),
+            windowWidthSpec(prefs, screen.first),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             overlayFlags(prefs),
@@ -193,15 +194,21 @@ internal class LyricOverlayWindow(
         view.isLongClickable = false
         view.isFocusable = false
         view.isFocusableInTouchMode = false
+        val screen = screenSize()
         val nextFlags = overlayFlags(prefs)
         val nextCutout = cutoutMode(prefs)
-        val nextWidth = windowWidthSpec(prefs)
+        val nextWidth = windowWidthSpec(prefs, screen.first)
+        val widthPx = if (nextWidth > 0) nextWidth else overlayWidthPx(prefs, screen.first)
         val nextX = clampedX(
-            prefs,
-            lp.x,
-            if (nextWidth > 0) nextWidth else overlayWidthPx(prefs),
+            if (prefs.posX == LyricOverlayPrefs.UNSET) lp.x else remapX(prefs, screen.first),
+            widthPx,
+            screen.first,
         )
-        val nextY = clampedY(prefs, lp.y)
+        val nextY = clampedY(
+            prefs,
+            if (prefs.posY == LyricOverlayPrefs.UNSET) lp.y else remapY(prefs, screen.second),
+            screen.second,
+        )
         if (lp.flags == nextFlags &&
             lp.layoutInDisplayCutoutMode == nextCutout &&
             lp.x == nextX &&
@@ -322,24 +329,24 @@ internal class LyricOverlayWindow(
         val lp = layoutParams ?: return
         val view = composeView ?: return
         val prefs = store.current()
+        val screen = screenSize()
         val w = when {
             lp.width > 0 -> lp.width
             view.width > 0 -> view.width
-            else -> overlayWidthPx(prefs)
+            else -> overlayWidthPx(prefs, screen.first)
         }
-        dragX = x
-        dragY = y
-        val nextX = clampedX(prefs, x.roundToInt(), w)
-        val nextY = clampedY(prefs, y.roundToInt())
+        val nextX = clampedX(x.roundToInt(), w, screen.first)
+        val nextY = clampedY(prefs, y.roundToInt(), screen.second)
+        dragX = nextX.toFloat()
+        dragY = nextY.toFloat()
         if (lp.x == nextX && lp.y == nextY) return
         lp.x = nextX
         lp.y = nextY
         runCatching { windowManager.updateViewLayout(view, lp) }
     }
 
-    private fun persistPosition() {
+    private fun persistPosition(screen: Pair<Int, Int> = screenSize()) {
         val lp = layoutParams ?: return
-        val screen = screenSize()
         store.update {
             it.copy(posX = lp.x, posY = lp.y, posRefW = screen.first, posRefH = screen.second)
         }
@@ -349,77 +356,123 @@ internal class LyricOverlayWindow(
         val lp = layoutParams ?: return
         val view = composeView ?: return
         val prefs = store.current()
-        val displayW = displayWidthPx()
-        val w = if (lp.width > 0) lp.width else if (view.width > 0) view.width else overlayWidthPx(prefs)
-        lp.x = ((displayW - w).coerceAtLeast(0)) / 2
+        val screen = screenSize()
+        val w = if (lp.width > 0) {
+            lp.width
+        } else if (view.width > 0) {
+            view.width
+        } else {
+            overlayWidthPx(prefs, screen.first)
+        }
+        lp.x = overlayClampX(((screen.first - w).coerceAtLeast(0)) / 2, w, screen.first)
         runCatching { windowManager.updateViewLayout(view, lp) }
-        persistPosition()
+        persistPosition(screen)
     }
 
-    private fun windowWidthSpec(prefs: LyricOverlayPrefs): Int {
+    private fun windowWidthSpec(prefs: LyricOverlayPrefs, displayW: Int = displayWidthPx()): Int {
         if (prefs.dynamicWidth) return WindowManager.LayoutParams.WRAP_CONTENT
-        return overlayWidthPx(prefs)
+        return overlayWidthPx(prefs, displayW)
     }
 
-    private fun overlayWidthPx(prefs: LyricOverlayPrefs): Int {
-        val avail = displayWidthPx()
+    private fun overlayWidthPx(prefs: LyricOverlayPrefs, displayW: Int = displayWidthPx()): Int {
+        val avail = displayW.coerceAtLeast(1)
         if (prefs.dynamicWidth) {
             val v = composeView?.width ?: 0
             if (v > 0) return v.coerceIn(1, avail)
             return (avail * 0.6f).roundToInt().coerceIn(1, avail)
         }
-        val pct = prefs.widthPercent.coerceIn(
-            LyricOverlayPrefs.WIDTH_PERCENT_MIN,
-            LyricOverlayPrefs.WIDTH_PERCENT_MAX,
-        )
-        return ((avail.toLong() * pct) / 100L).toInt().coerceIn(1, avail)
+        return overlayFixedWidthPx(avail, prefs.widthPercent)
     }
 
-    private fun clampedX(prefs: LyricOverlayPrefs, x: Int, widthPx: Int = overlayWidthPx(prefs)): Int {
-        val displayW = displayWidthPx()
-        val w = widthPx.coerceIn(1, displayW)
-        val maxX = (displayW - w).coerceAtLeast(0)
-        return x.coerceIn(0, maxX)
-    }
+    private fun clampedX(
+        x: Int,
+        widthPx: Int,
+        displayW: Int,
+    ): Int = overlayClampX(x, widthPx, displayW)
 
-    private fun clampedY(prefs: LyricOverlayPrefs, y: Int): Int {
+    private fun clampedY(
+        prefs: LyricOverlayPrefs,
+        y: Int,
+        displayH: Int = screenSize().second,
+    ): Int {
         val min = minOverlayY(prefs)
-        val max = (screenSize().second - 48).coerceAtLeast(min)
+        val max = (displayH - 48).coerceAtLeast(min)
         return y.coerceIn(min, max)
     }
 
     private fun minOverlayY(prefs: LyricOverlayPrefs): Int {
         if (prefs.ignoreCutout) return 0
-        return windowManager.maximumWindowMetrics.windowInsets.getInsets(
+        val insets = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            windowManager.currentWindowMetrics.windowInsets
+        } else {
+            windowManager.maximumWindowMetrics.windowInsets
+        }
+        return insets.getInsets(
             android.view.WindowInsets.Type.statusBars() or
                 android.view.WindowInsets.Type.displayCutout(),
         ).top
     }
 
-    private fun displayWidthPx(): Int {
-        return displayBounds().width().coerceAtLeast(1)
+    private fun displayWidthPx(): Int = screenSize().first
+
+    private fun screenSize(orientation: Int = app.resources.configuration.orientation): Pair<Int, Int> {
+        val raw = rawDisplaySize()
+        return overlayDisplaySize(raw.first, raw.second, orientation)
     }
 
-    private fun displayBounds(): android.graphics.Rect {
-        return windowManager.maximumWindowMetrics.bounds
+    @Suppress("DEPRECATION")
+    private fun rawDisplaySize(): Pair<Int, Int> {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val maxBounds = runCatching { windowManager.maximumWindowMetrics.bounds }.getOrNull()
+            if (maxBounds != null && maxBounds.width() > 0 && maxBounds.height() > 0) {
+                return maxBounds.width() to maxBounds.height()
+            }
+            val curBounds = runCatching { windowManager.currentWindowMetrics.bounds }.getOrNull()
+            if (curBounds != null && curBounds.width() > 0 && curBounds.height() > 0) {
+                return curBounds.width() to curBounds.height()
+            }
+        }
+        val point = Point()
+        runCatching {
+            overlayDisplay(app, windowManager)?.getRealSize(point)
+        }
+        if (point.x > 0 && point.y > 0) return point.x to point.y
+        val dm = overlayContext.resources.displayMetrics
+        return dm.widthPixels.coerceAtLeast(1) to dm.heightPixels.coerceAtLeast(1)
     }
 
-    private fun screenSize(): Pair<Int, Int> {
-        val b = displayBounds()
-        return b.width() to b.height()
-    }
+    private fun remapX(prefs: LyricOverlayPrefs, newW: Int): Int = overlayRemapCoord(
+        pos = prefs.posX,
+        ref = prefs.posRefW,
+        newSize = newW,
+        fallback = overlayDefaultX(newW),
+    )
 
-    private fun remapX(prefs: LyricOverlayPrefs, newW: Int): Int {
-        if (prefs.posX == LyricOverlayPrefs.UNSET) return (newW * 0.12f).roundToInt()
-        if (prefs.posRefW <= 0) return prefs.posX
-        return (prefs.posX.toLong() * newW / prefs.posRefW).toInt()
-    }
+    private fun remapY(prefs: LyricOverlayPrefs, newH: Int): Int = overlayRemapCoord(
+        pos = prefs.posY,
+        ref = prefs.posRefH,
+        newSize = newH,
+        fallback = overlayDefaultY(newH),
+    )
+}
 
-    private fun remapY(prefs: LyricOverlayPrefs, newH: Int): Int {
-        if (prefs.posY == LyricOverlayPrefs.UNSET) return (newH * 0.18f).roundToInt()
-        if (prefs.posRefH <= 0) return prefs.posY
-        return (prefs.posY.toLong() * newH / prefs.posRefH).toInt()
-    }
+private fun createOverlayWindowContext(app: Application): Context {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return app
+    return runCatching {
+        val wm = app.getSystemService(WindowManager::class.java)
+        val display = overlayDisplay(app, wm) ?: return@runCatching app
+        app.createDisplayContext(display)
+            .createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null)
+    }.getOrDefault(app)
+}
+
+/** Application 没有关联 Display，禁止 Context.getDisplay()。 */
+@Suppress("DEPRECATION")
+private fun overlayDisplay(app: Application, windowManager: WindowManager): Display? {
+    val fromManager = app.getSystemService(DisplayManager::class.java)
+        ?.getDisplay(Display.DEFAULT_DISPLAY)
+    if (fromManager != null) return fromManager
+    return runCatching { windowManager.defaultDisplay }.getOrNull()
 }
 
 private class OverlayComposeHost : LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {

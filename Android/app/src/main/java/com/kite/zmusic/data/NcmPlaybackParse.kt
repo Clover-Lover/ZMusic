@@ -16,6 +16,24 @@ internal object NcmPlaybackParse {
         return null
     }
 
+    /**
+     * `/song/url/match`（UnblockNeteaseMusic 等外部解灰）常见为 data.url 对象，
+     * 也兼容官方 song/url 的 data 数组。
+     */
+    fun unblockedSongUrl(json: JSONObject, id: Long): String? {
+        json.optJSONObject("data")?.optString("url")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        songUrlForId(json, id)?.let { return it }
+        json.optJSONArray("data")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                o.optString("url").takeIf { it.isNotBlank() }?.let { return it }
+            }
+        }
+        return json.optString("url").takeIf { it.isNotBlank() }
+    }
+
     /** 优先读 `lrc.lyric`；无 code/非 200 时仍尝试解析（部分代理响应缺顶层 code）。 */
     fun lrcText(json: JSONObject): String? {
         val code = NcmJson.apiCode(json)

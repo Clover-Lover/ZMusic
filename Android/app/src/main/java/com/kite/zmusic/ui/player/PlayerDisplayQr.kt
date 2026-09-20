@@ -20,6 +20,7 @@ import kotlin.math.max
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.io.InputStream
+import java.io.OutputStream
 import com.kite.zmusic.i18n.t
 
 object PlayerDisplayQr {
@@ -108,33 +109,51 @@ object PlayerDisplayQr {
      * 保存二维码到位图相册。API 29+ 走 MediaStore，无需存储权限。
      */
     fun saveToGallery(context: Context, bitmap: Bitmap, displayName: String): Result<Uri> =
-        runCatching {
-            val resolver = context.contentResolver
-            val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
-                put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                if (Build.VERSION.SDK_INT >= 29) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/ZMusic")
-                    put(MediaStore.Images.Media.IS_PENDING, 1)
-                }
+        writeGallery(context, displayName, "image/png") { out ->
+            if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                error(t("写入图片失败"))
             }
-            val collection = if (Build.VERSION.SDK_INT >= 29) {
-                MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-            } else {
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-            }
-            val uri = resolver.insert(collection, values)
-                ?: error(t("无法创建相册条目"))
-            resolver.openOutputStream(uri)?.use { out ->
-                if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) {
-                    error(t("写入图片失败"))
-                }
-            } ?: error(t("无法写入相册"))
-            if (Build.VERSION.SDK_INT >= 29) {
-                values.clear()
-                values.put(MediaStore.Images.Media.IS_PENDING, 0)
-                resolver.update(uri, values, null, null)
-            }
-            uri
         }
+
+    fun saveUriToGallery(context: Context, source: Uri, displayName: String): Result<Uri> {
+        val mime = context.contentResolver.getType(source)
+            ?.takeIf { it.startsWith("image/") }
+            ?: "image/png"
+        return writeGallery(context, displayName, mime) { out ->
+            context.contentResolver.openInputStream(source)?.use { input ->
+                input.copyTo(out)
+            } ?: error(t("无法写入相册"))
+        }
+    }
+
+    private fun writeGallery(
+        context: Context,
+        displayName: String,
+        mime: String,
+        write: (OutputStream) -> Unit,
+    ): Result<Uri> = runCatching {
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Images.Media.DISPLAY_NAME, displayName)
+            put(MediaStore.Images.Media.MIME_TYPE, mime)
+            if (Build.VERSION.SDK_INT >= 29) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/ZMusic")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+        }
+        val collection = if (Build.VERSION.SDK_INT >= 29) {
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        } else {
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        }
+        val uri = resolver.insert(collection, values)
+            ?: error(t("无法创建相册条目"))
+        resolver.openOutputStream(uri)?.use(write) ?: error(t("无法写入相册"))
+        if (Build.VERSION.SDK_INT >= 29) {
+            values.clear()
+            values.put(MediaStore.Images.Media.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+        }
+        uri
+    }
 }

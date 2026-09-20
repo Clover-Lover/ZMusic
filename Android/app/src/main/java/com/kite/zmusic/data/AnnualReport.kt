@@ -259,6 +259,31 @@ internal object AnnualReportLogic {
         return byKey.values.sortedByDescending { it.playCount }.take(20)
     }
 
+    fun needsArtistCover(url: String?): Boolean {
+        val v = url?.trim().orEmpty()
+        if (v.isEmpty()) return true
+        return v.contains("18686200114669622") ||
+            v.contains("5639395138885805") ||
+            v.contains("/default", ignoreCase = true)
+    }
+
+    fun artistIdsNeedingCover(artists: List<AnnualArtist>, limit: Int = 8): List<Long> =
+        artists.asSequence()
+            .filter { it.id > 0L && needsArtistCover(it.coverUrl) }
+            .take(limit)
+            .map { it.id }
+            .toList()
+
+    fun withArtistCovers(report: AnnualReport, covers: Map<Long, String>): AnnualReport {
+        if (covers.isEmpty()) return report
+        return report.copy(
+            artists = report.artists.map { artist ->
+                val next = covers[artist.id]?.takeIf { it.isNotBlank() } ?: return@map artist
+                if (needsArtistCover(artist.coverUrl)) artist.copy(coverUrl = next) else artist
+            },
+        )
+    }
+
     private fun mergeStyles(a: List<AnnualStyle>, b: List<AnnualStyle>): List<AnnualStyle> {
         val byName = LinkedHashMap<String, AnnualStyle>()
         (a + b).forEach { style ->

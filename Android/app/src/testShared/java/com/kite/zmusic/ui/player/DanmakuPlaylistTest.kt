@@ -91,4 +91,12 @@ class DanmakuPlaylistTest {
         assertTrue(y != null)
         assertTrue(kotlin.math.abs(y!! - 100f) >= 32f)
     }
+
+    @Test
+    fun pauseStopsSpawnButKeepsMoving() {
+        assertTrue(DanmakuPlaylist.canSpawn(enabled = true, obscured = false, playing = true))
+        assertTrue(!DanmakuPlaylist.canSpawn(enabled = true, obscured = false, playing = false))
+        assertTrue(!DanmakuPlaylist.canSpawn(enabled = false, obscured = false, playing = true))
+        assertTrue(!DanmakuPlaylist.canSpawn(enabled = true, obscured = true, playing = true))
+    }
 }

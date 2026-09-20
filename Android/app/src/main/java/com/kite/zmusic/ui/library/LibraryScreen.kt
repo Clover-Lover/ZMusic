@@ -1535,7 +1535,7 @@ internal fun ProfileIdentityMeta(
                             tint = identityTagStyle(onPhoto).color,
                             modifier = Modifier
                                 .padding(end = 3.dp)
-                                .size(12.dp),
+                                .size(18.dp),
                         )
                     }
                     Text(text = tag.text, style = identityTagStyle(onPhoto))
@@ -1694,7 +1694,7 @@ private fun ProfileVipMark(
                 imageVector = ZIcons.MusicNote,
                 contentDescription = "VIP",
                 tint = Color.White,
-                modifier = Modifier.size(11.dp),
+                modifier = Modifier.size(18.dp),
             )
         }
     }

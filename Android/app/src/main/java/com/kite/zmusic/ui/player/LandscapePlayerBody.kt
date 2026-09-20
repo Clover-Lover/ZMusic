@@ -169,6 +169,8 @@ import com.kite.zmusic.playback.PlaybackMode
 import com.kite.zmusic.playback.mergePlaylistQueue
 import com.kite.zmusic.ui.common.UrlImage
 import com.kite.zmusic.ui.notice.showIslandNotice
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -239,6 +241,9 @@ private fun LandscapeExpandLinkedLayer(
 internal fun LandscapePlayerBody(
     track: TrackRow,
     lines: List<LrcLine>,
+    lyricCompanions: List<LrcLine?> = emptyList(),
+    originalOnTop: Boolean = true,
+    showCompanionOnOthers: Boolean = true,
     positionMs: Long,
     seekPositionMs: Long,
     isPlaying: Boolean,
@@ -265,6 +270,7 @@ internal fun LandscapePlayerBody(
     onDisplayPrefsChange: (PlayerDisplayPrefs) -> Unit,
     onDisplayPrefsFlush: () -> Unit,
     settingsHazeState: HazeState,
+    playerLiquidBackdrop: LayerBackdrop? = null,
     peekNextTrack: TrackRow?,
     peekPrevTrack: TrackRow?,
     onSeek: (Long) -> Unit,
@@ -395,7 +401,8 @@ internal fun LandscapePlayerBody(
     }.collectAsStateWithLifecycle(initialValue = app.playbackBridge.ui.value.fmActive)
     val fmChoice by app.personalFmModeStore.choice.collectAsStateWithLifecycle()
     var fmPickerOpen by remember { mutableStateOf(false) }
-    var fmPickerOrigin by remember { mutableStateOf(Offset.Zero) }
+    var fmPickerOrigin by remember { mutableStateOf(Rect.Zero) }
+    var fmIconCovered by remember { mutableStateOf(false) }
     var fmApplying by remember { mutableStateOf(false) }
     LaunchedEffect(playbackFmActive) {
         if (!playbackFmActive) {
@@ -1449,10 +1456,17 @@ internal fun LandscapePlayerBody(
             animateChanges = lyricSelectOpen && lyricSelectT > 0.98f,
         )
 
-        // 播放内容作磨砂源（不含设置面板本身）
+        // 播放内容作磨砂源；液态另记一层，供弹幕等浮层折射（不含弹幕/设置）
         Box(
             Modifier
                 .fillMaxSize()
+                .then(
+                    if (playerLiquidBackdrop != null) {
+                        Modifier.layerBackdrop(playerLiquidBackdrop)
+                    } else {
+                        Modifier
+                    },
+                )
                 .hazeSource(state = settingsHazeState, zIndex = 1f)
                 .graphicsLayer { clip = false },
         ) {
@@ -1672,6 +1686,9 @@ internal fun LandscapePlayerBody(
 
             LandscapeProjectionLyrics(
                 lines = lines,
+                companions = lyricCompanions,
+                originalOnTop = originalOnTop,
+                showCompanionOnOthers = showCompanionOnOthers,
                 positionMs = if (lyricStyleSnapshot != null) {
                     lyricStyleFrozenPositionMs
                 } else {
@@ -2264,6 +2281,7 @@ internal fun LandscapePlayerBody(
                 )
                 if (playbackFmActive) {
                     NowPlayingFmModeButton(
+                        covered = fmIconCovered,
                         onClick = { origin ->
                             fmPickerOrigin = origin
                             fmPickerOpen = true
@@ -2310,9 +2328,12 @@ internal fun LandscapePlayerBody(
 
         PersonalFmModePickerOverlay(
             visible = fmPickerOpen,
-            originInWindow = fmPickerOrigin,
+            originBounds = fmPickerOrigin,
             current = fmChoice,
             applying = fmApplying,
+            haze = settingsHazeState,
+            chromeBackground = true,
+            onCoveredChange = { fmIconCovered = it },
             onDismiss = { if (!fmApplying) fmPickerOpen = false },
             onSelect = { choice ->
                 if (choice == fmChoice) {

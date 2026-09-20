@@ -101,7 +101,8 @@ data class RealtimeCachePrefs(
 
 data class AppPrefs(
     val musicServer: String = "",
-    val communityServer: String = "114.215.189.208:80",
+    /** host:port；默认取环境变量 ZMUSIC_COMMUNITY_SERVER，否则空。 */
+    val communityServer: String = defaultCommunityServer(),
     val audioQuality: AudioQuality = AudioQuality.Default,
     val persistentPlayback: Boolean = false,
     val lyricWordByWord: Boolean = true,
@@ -112,6 +113,9 @@ data class AppPrefs(
     val wallpaperPath: String = "",
     val playerDisplay: PlayerDisplayPrefs = PlayerDisplayPrefs(),
 )
+
+private fun defaultCommunityServer(): String =
+    System.getenv("ZMUSIC_COMMUNITY_SERVER")?.trim().orEmpty()
 
 class PrefsStore {
     private val _prefs = MutableStateFlow(read())
@@ -134,7 +138,7 @@ class PrefsStore {
             val o = JSONObject(f.readText())
             AppPrefs(
                 musicServer = o.optString("musicServer", ""),
-                communityServer = o.optString("communityServer", "114.215.189.208:80"),
+                communityServer = o.optString("communityServer", defaultCommunityServer()),
                 audioQuality = AudioQuality.fromLevel(o.optString("audioQuality")),
                 persistentPlayback = o.optBoolean("persistentPlayback", false),
                 lyricWordByWord = o.optBoolean("lyricWordByWord", true),

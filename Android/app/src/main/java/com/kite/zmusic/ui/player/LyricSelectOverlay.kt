@@ -8,7 +8,6 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,7 +46,6 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -65,6 +64,8 @@ import androidx.compose.ui.unit.sp
 import com.kite.zmusic.data.LrcLine
 import com.kite.zmusic.data.LyricRoleStyle
 import com.kite.zmusic.data.PlayerDisplayPrefs
+import com.kite.zmusic.ui.icons.ZIconSize
+import com.kite.zmusic.ui.icons.ZIcons
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -526,62 +527,30 @@ private fun SelectActionButton(
 
 @Composable
 private fun SelectExitIcon() {
-    Canvas(Modifier.size(18.dp)) {
-        val arm = size.minDimension * 0.16f
-        val inset = size.minDimension * 0.22f
-        // 实心 X：两臂用粗线近似填充感
-        drawLine(
-            SelectLabel,
-            Offset(inset, inset),
-            Offset(size.width - inset, size.height - inset),
-            arm,
-            StrokeCap.Round,
-        )
-        drawLine(
-            SelectLabel,
-            Offset(size.width - inset, inset),
-            Offset(inset, size.height - inset),
-            arm,
-            StrokeCap.Round,
-        )
-    }
+    Icon(
+        imageVector = ZIcons.Close,
+        contentDescription = null,
+        tint = SelectLabel,
+        modifier = Modifier.size(ZIconSize.Compact),
+    )
 }
 
 @Composable
 private fun SelectClearIcon() {
-    Canvas(Modifier.size(18.dp)) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val r = size.minDimension * 0.38f
-        drawCircle(SelectLabel, radius = r, center = Offset(cx, cy))
-        drawLine(
-            Color(0xFF0A0E14),
-            Offset(cx - r * 0.45f, cy),
-            Offset(cx + r * 0.45f, cy),
-            size.minDimension * 0.14f,
-            StrokeCap.Round,
-        )
-    }
+    Icon(
+        imageVector = ZIcons.RemoveCircle,
+        contentDescription = null,
+        tint = SelectLabel,
+        modifier = Modifier.size(ZIconSize.Compact),
+    )
 }
 
 @Composable
 private fun SelectCopyIcon() {
-    Canvas(Modifier.size(18.dp)) {
-        val w = size.width
-        val h = size.height
-        // 后层纸
-        drawRoundRect(
-            color = SelectLabel.copy(alpha = 0.55f),
-            topLeft = Offset(w * 0.30f, h * 0.14f),
-            size = Size(w * 0.48f, h * 0.58f),
-            cornerRadius = CornerRadius(2.2f, 2.2f),
-        )
-        // 前层纸（实心）
-        drawRoundRect(
-            color = SelectLabel,
-            topLeft = Offset(w * 0.18f, h * 0.28f),
-            size = Size(w * 0.48f, h * 0.58f),
-            cornerRadius = CornerRadius(2.2f, 2.2f),
-        )
-    }
+    Icon(
+        imageVector = ZIcons.Copy,
+        contentDescription = null,
+        tint = SelectLabel,
+        modifier = Modifier.size(ZIconSize.Compact),
+    )
 }

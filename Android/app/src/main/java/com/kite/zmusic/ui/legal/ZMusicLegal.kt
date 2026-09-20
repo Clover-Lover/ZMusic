@@ -2,20 +2,20 @@ package com.kite.zmusic.ui.legal
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kite.zmusic.ui.main.MainPalette
@@ -150,8 +150,9 @@ internal fun aboutLegalSections(kind: AboutLegalKind): List<AboutLegalSection> =
         ),
         AboutLegalSection(
             heading = t("我们不会做的事"),
-            body = t("ZMusic 现在不会、未来也不会提供免 VIP、歌曲解灰、破解数字版权保护、绕过付费墙，或任何用于无偿取得官方会员权益与未授权曲库的功能。\n\n") +
-                t("请勿以「代破解」「解锁灰歌」等目的使用、要求或二次修改本应用。若你看到声称与 ZMusic 相关的此类能力，它们不属于本项目。"),
+            body = t("ZMusic 不会提供免 VIP、破解数字版权保护、绕过付费墙，或用于无偿取得官方会员权益的能力。\n\n") +
+                t("「歌曲解灰」不是默认功能。它被放在设置-隐私中且默认关闭。ZMusic 明确禁止开启。开启前必须阅读风险说明。逆向与匹配来自 UnblockNeteaseMusic 等外部开源库，ZMusic 没有自行逆向网易云，也不得把责任甩给开源库作者。强制开启的法律责任由使用者本人承担。\n\n") +
+                t("请勿以「代破解」为目的使用、要求或二次修改本应用。若有人把解灰宣传成 ZMusic 官方能力，那不属于本项目立场。"),
         ),
         AboutLegalSection(
             heading = t("请尊重官方网易云音乐"),
@@ -175,9 +176,11 @@ internal fun aboutLegalSections(kind: AboutLegalKind): List<AboutLegalSection> =
 }
 
 @Composable
-internal fun AboutLegalGlassBody(kind: AboutLegalKind) {
-    val landscape = LocalConfiguration.current.orientation ==
-        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+internal fun AboutLegalPage(
+    kind: AboutLegalKind,
+    contentBottomInset: Dp,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val notices = remember(kind, context) {
         if (kind != AboutLegalKind.License) {
@@ -192,57 +195,51 @@ internal fun AboutLegalGlassBody(kind: AboutLegalKind) {
     }
     val sections = aboutLegalSections(kind)
     Column(
-        Modifier
-            .fillMaxWidth()
-            .then(
-                if (landscape) {
-                    Modifier
-                } else {
-                    Modifier
-                        .heightIn(max = 320.dp)
-                        .verticalScroll(rememberScrollState())
-                },
-            ),
+        modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 22.dp)
+            .padding(top = 8.dp, bottom = contentBottomInset + 24.dp),
     ) {
         sections.forEachIndexed { index, section ->
-            if (index > 0) Spacer(Modifier.height(16.dp))
+            if (index > 0) Spacer(Modifier.height(22.dp))
             Text(
                 text = "${index + 1}. ${section.heading}",
                 style = TextStyle(
                     color = MainPalette.Ink,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
-                    lineHeight = 20.sp,
+                    lineHeight = 22.sp,
                 ),
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = section.body,
                 style = TextStyle(
                     color = MainPalette.Secondary,
-                    fontSize = 13.sp,
-                    lineHeight = 20.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 22.sp,
                 ),
             )
         }
         if (notices.isNotBlank()) {
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(22.dp))
             Text(
                 text = "${sections.size + 1}. ${t("许可证原文")}",
                 style = TextStyle(
                     color = MainPalette.Ink,
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
-                    lineHeight = 20.sp,
+                    lineHeight = 22.sp,
                 ),
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = notices,
                 style = TextStyle(
                     color = MainPalette.Secondary,
-                    fontSize = 11.sp,
-                    lineHeight = 16.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
                     fontFamily = FontFamily.Monospace,
                 ),
             )

@@ -16,6 +16,7 @@ internal enum class NcmShareTarget {
     WeChatFriend,
     QqFriend,
     CopyLink,
+    SaveToAlbum,
 }
 
 internal object NcmShare {
@@ -47,6 +48,9 @@ internal object NcmShare {
         imageUri: Uri,
         target: NcmShareTarget,
     ): NcmShareResult {
+        if (target == NcmShareTarget.SaveToAlbum) {
+            return saveImage(context, imageUri)
+        }
         if (target == NcmShareTarget.CopyLink) return NcmShareResult.Failed
         val launched = when (target) {
             NcmShareTarget.WeChatFriend -> launchImage(
@@ -68,7 +72,7 @@ internal object NcmShare {
                 "com.tencent.mobileqq.activity.JumpActivity",
                 "com.tencent.mobileqq.activity.qfileJumpActivity",
             )
-            NcmShareTarget.CopyLink -> false
+            NcmShareTarget.CopyLink, NcmShareTarget.SaveToAlbum -> false
         }
         Log.i(TAG, "sendImage target=$target launched=$launched")
         if (launched) return NcmShareResult.Opened
@@ -85,8 +89,24 @@ internal object NcmShare {
                 } else {
                     NcmShareResult.Failed
                 }
-            NcmShareTarget.CopyLink -> NcmShareResult.Failed
+            NcmShareTarget.CopyLink, NcmShareTarget.SaveToAlbum -> NcmShareResult.Failed
         }
+    }
+
+    fun saveImage(context: Context, imageUri: Uri): NcmShareResult {
+        val name = "ZMusic_share_${System.currentTimeMillis()}.png"
+        return if (PlayerDisplayQr.saveUriToGallery(context, imageUri, name).isSuccess) {
+            NcmShareResult.Saved
+        } else {
+            NcmShareResult.Failed
+        }
+    }
+
+    fun imageResultNotice(target: NcmShareTarget, result: NcmShareResult): String? = when (result) {
+        NcmShareResult.Opened -> null
+        NcmShareResult.Saved -> t("已保存到相册")
+        is NcmShareResult.MissingApp -> t("未安装%s", result.appName)
+        else -> if (target == NcmShareTarget.SaveToAlbum) t("保存失败") else t("分享失败")
     }
 
     private fun launchImage(
@@ -154,6 +174,7 @@ internal object NcmShare {
 internal sealed class NcmShareResult {
     data object Opened : NcmShareResult()
     data object Copied : NcmShareResult()
+    data object Saved : NcmShareResult()
     data object NoLink : NcmShareResult()
     data object Failed : NcmShareResult()
     data object CopiedFailed : NcmShareResult()

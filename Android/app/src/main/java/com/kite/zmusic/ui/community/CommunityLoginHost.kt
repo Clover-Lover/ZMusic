@@ -89,11 +89,16 @@ private data class PendingSongScan(
     val artists: String,
 )
 
+class CommunityQrOpener(
+    val openScanner: () -> Unit,
+    val openLogin: () -> Unit,
+)
+
 @Composable
 fun rememberCommunityLoginOpener(
     offerWebsite: Boolean = false,
     onPlaySong: ((Long) -> Unit)? = null,
-): () -> Unit {
+): CommunityQrOpener {
     val context = LocalContext.current
     val app = context.applicationContext as ZMusicApplication
     val scope = rememberCoroutineScope()
@@ -459,9 +464,10 @@ fun rememberCommunityLoginOpener(
         )
     }
 
-    return {
-        if (offerWebsite) showChoice = true else openScanner()
-    }
+    return CommunityQrOpener(
+        openScanner = { openScanner() },
+        openLogin = { if (offerWebsite) showChoice = true else openScanner() },
+    )
 }
 
 @Composable

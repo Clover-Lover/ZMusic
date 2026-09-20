@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -80,6 +82,7 @@ internal fun LyricOverlaySettingsPanel(
     onChange: (LyricOverlayPrefs) -> Unit,
     onCenterHorizontally: () -> Unit,
     compact: Boolean = false,
+    landscape: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val switchColors = SwitchDefaults.colors(
@@ -100,13 +103,151 @@ internal fun LyricOverlaySettingsPanel(
         modifier
             .clip(RoundedCornerShape(14.dp))
             .background(Color(0xF2141418))
-            .padding(horizontal = if (compact) 6.dp else 10.dp, vertical = 8.dp),
+            .padding(horizontal = if (compact) 6.dp else 10.dp, vertical = 8.dp)
+            .then(if (landscape) Modifier.fillMaxHeight() else Modifier),
     ) {
-        SettingsFolder(
-            title = t("歌词"),
-            expanded = openFolder == OverlayFolder.Lyrics,
-            onToggle = { openFolder = if (openFolder == OverlayFolder.Lyrics) null else OverlayFolder.Lyrics },
-        ) {
+        if (landscape) {
+            val selected = openFolder ?: OverlayFolder.Lyrics
+            LandscapeFolderTabs(
+                selected = selected,
+                onSelect = { openFolder = it },
+            )
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .padding(top = 4.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                OverlayFolderBody(
+                    folder = selected,
+                    prefs = prefs,
+                    onChange = onChange,
+                    onCenterHorizontally = onCenterHorizontally,
+                    compact = compact,
+                    switchColors = switchColors,
+                    sliderColors = sliderColors,
+                )
+            }
+        } else {
+            SettingsFolder(
+                title = t("歌词"),
+                expanded = openFolder == OverlayFolder.Lyrics,
+                onToggle = { openFolder = if (openFolder == OverlayFolder.Lyrics) null else OverlayFolder.Lyrics },
+            ) {
+                OverlayFolderBody(
+                    folder = OverlayFolder.Lyrics,
+                    prefs = prefs,
+                    onChange = onChange,
+                    onCenterHorizontally = onCenterHorizontally,
+                    compact = compact,
+                    switchColors = switchColors,
+                    sliderColors = sliderColors,
+                )
+            }
+            SettingsFolder(
+                title = t("翻译"),
+                expanded = openFolder == OverlayFolder.Translation,
+                onToggle = {
+                    openFolder = if (openFolder == OverlayFolder.Translation) null else OverlayFolder.Translation
+                },
+            ) {
+                OverlayFolderBody(
+                    folder = OverlayFolder.Translation,
+                    prefs = prefs,
+                    onChange = onChange,
+                    onCenterHorizontally = onCenterHorizontally,
+                    compact = compact,
+                    switchColors = switchColors,
+                    sliderColors = sliderColors,
+                )
+            }
+            SettingsFolder(
+                title = t("颜色"),
+                expanded = openFolder == OverlayFolder.Color,
+                onToggle = { openFolder = if (openFolder == OverlayFolder.Color) null else OverlayFolder.Color },
+            ) {
+                OverlayFolderBody(
+                    folder = OverlayFolder.Color,
+                    prefs = prefs,
+                    onChange = onChange,
+                    onCenterHorizontally = onCenterHorizontally,
+                    compact = compact,
+                    switchColors = switchColors,
+                    sliderColors = sliderColors,
+                )
+            }
+            SettingsFolder(
+                title = t("窗口"),
+                expanded = openFolder == OverlayFolder.Window,
+                onToggle = { openFolder = if (openFolder == OverlayFolder.Window) null else OverlayFolder.Window },
+            ) {
+                OverlayFolderBody(
+                    folder = OverlayFolder.Window,
+                    prefs = prefs,
+                    onChange = onChange,
+                    onCenterHorizontally = onCenterHorizontally,
+                    compact = compact,
+                    switchColors = switchColors,
+                    sliderColors = sliderColors,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LandscapeFolderTabs(
+    selected: OverlayFolder,
+    onSelect: (OverlayFolder) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        OverlayFolder.entries.forEach { folder ->
+            val on = folder == selected
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (on) Color(0x33FFFFFF) else Color(0x14FFFFFF))
+                    .then(if (on) Modifier.border(1.dp, Color.White, RoundedCornerShape(10.dp)) else Modifier)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onSelect(folder) },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = folder.label(),
+                    style = TextStyle(
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OverlayFolderBody(
+    folder: OverlayFolder,
+    prefs: LyricOverlayPrefs,
+    onChange: (LyricOverlayPrefs) -> Unit,
+    onCenterHorizontally: () -> Unit,
+    compact: Boolean,
+    switchColors: androidx.compose.material3.SwitchColors,
+    sliderColors: androidx.compose.material3.SliderColors,
+) {
+    when (folder) {
+        OverlayFolder.Lyrics -> {
             StepperRow(
                 title = t("已播行"),
                 value = prefs.playedLines,
@@ -131,13 +272,7 @@ internal fun LyricOverlaySettingsPanel(
                 colors = sliderColors,
             )
         }
-        SettingsFolder(
-            title = t("翻译"),
-            expanded = openFolder == OverlayFolder.Translation,
-            onToggle = {
-                openFolder = if (openFolder == OverlayFolder.Translation) null else OverlayFolder.Translation
-            },
-        ) {
+        OverlayFolder.Translation -> {
             SwitchRow(t("显示翻译歌词"), prefs.preferTranslation, switchColors, compact) {
                 onChange(prefs.copy(preferTranslation = it))
             }
@@ -174,11 +309,7 @@ internal fun LyricOverlaySettingsPanel(
                 }
             }
         }
-        SettingsFolder(
-            title = t("颜色"),
-            expanded = openFolder == OverlayFolder.Color,
-            onToggle = { openFolder = if (openFolder == OverlayFolder.Color) null else OverlayFolder.Color },
-        ) {
+        OverlayFolder.Color -> {
             ColorRow(t("已播"), prefs.playedColorArgb) { onChange(prefs.copy(playedColorArgb = it)) }
             ColorRow(t("当前"), prefs.currentColorArgb) { onChange(prefs.copy(currentColorArgb = it)) }
             ColorRow(t("未播"), prefs.upcomingColorArgb) { onChange(prefs.copy(upcomingColorArgb = it)) }
@@ -192,11 +323,7 @@ internal fun LyricOverlaySettingsPanel(
                 }
             }
         }
-        SettingsFolder(
-            title = t("窗口"),
-            expanded = openFolder == OverlayFolder.Window,
-            onToggle = { openFolder = if (openFolder == OverlayFolder.Window) null else OverlayFolder.Window },
-        ) {
+        OverlayFolder.Window -> {
             ActionRow(t("窗口居中"), ZIcons.AlignHorizontalCenter, onCenterHorizontally)
             SwitchRow(t("悬浮窗背景"), prefs.windowBackground, switchColors, compact) {
                 onChange(prefs.copy(windowBackground = it))
@@ -248,6 +375,13 @@ internal fun LyricOverlaySettingsPanel(
 
 private enum class OverlayFolder { Lyrics, Translation, Color, Window }
 
+private fun OverlayFolder.label(): String = when (this) {
+    OverlayFolder.Lyrics -> t("歌词")
+    OverlayFolder.Translation -> t("翻译")
+    OverlayFolder.Color -> t("颜色")
+    OverlayFolder.Window -> t("窗口")
+}
+
 @Composable
 private fun SettingsFolder(
     title: String,
@@ -287,7 +421,7 @@ private fun SettingsFolder(
                 contentDescription = if (expanded) t("收起") else t("展开"),
                 tint = Color(0xCCFFFFFF),
                 modifier = Modifier
-                    .size(20.dp)
+                    .size(22.dp)
                     .rotate(rot),
             )
         }
@@ -416,7 +550,7 @@ private fun StepperButton(icon: ImageVector, label: String, onClick: () -> Unit)
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(16.dp))
+        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(18.dp))
     }
 }
 

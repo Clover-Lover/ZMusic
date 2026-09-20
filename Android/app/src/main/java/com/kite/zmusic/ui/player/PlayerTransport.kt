@@ -173,6 +173,7 @@ import com.kite.zmusic.playback.PlaybackMode
 import com.kite.zmusic.playback.mergePlaylistQueue
 import com.kite.zmusic.ui.common.UrlImage
 import com.kite.zmusic.ui.common.rememberNetworkOnline
+import com.kite.zmusic.ui.icons.ZIconSize
 import com.kite.zmusic.ui.icons.ZIcons
 import com.kite.zmusic.ui.notice.showIslandNotice
 import com.kite.zmusic.ui.theme.TextTheme
@@ -286,11 +287,7 @@ internal fun PlayerTransport(
         portraitSlim -> 16.dp
         else -> 20.dp
     }
-    val transportIconSize = when {
-        landscapeDense -> 16.dp
-        portraitSlim -> 22.dp
-        else -> 18.dp
-    }
+    val transportIconSize = if (landscapeDense) ZIconSize.Compact else ZIconSize.Standard
     // 厚轨道左右半圆半径 ≈ 高度一半；缩短进度条后半圆外缘与端点图标外缘对齐
     val trackCapRadius = sliderH / 2
     val portraitAlignPad = trackCapRadius
@@ -846,7 +843,7 @@ private fun PortraitAccessoryIcon(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = tint,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(ZIconSize.Standard),
         )
         if (badge > 0) {
             val label = if (badge > 9) "9+" else badge.toString()

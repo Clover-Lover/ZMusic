@@ -115,7 +115,7 @@ fun LandscapeNavRail(
                             imageVector = ZIcons.dock(dest),
                             contentDescription = null,
                             tint = if (on) TextTheme.DockActive else TextTheme.DockInactive,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(22.dp),
                         )
                     }
                 }
@@ -129,7 +129,7 @@ fun LandscapeNavRail(
                             imageVector = ZIcons.BugReport,
                             contentDescription = null,
                             tint = if (probeSelected) TextTheme.DockActive else TextTheme.DockInactive,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(22.dp),
                         )
                     }
                 }
@@ -152,7 +152,7 @@ fun LandscapeNavRail(
                         } else {
                             TextTheme.DockInactive
                         },
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(22.dp),
                     )
                 }
             }

@@ -5,6 +5,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -63,6 +64,8 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -96,6 +99,9 @@ import com.kite.zmusic.ui.chrome.pagerPageShowsOwnWallpaper
 import com.kite.zmusic.ui.chrome.preloadWallpaperBitmap
 import com.kite.zmusic.ui.chrome.wallpaperSurface
 import com.kite.zmusic.ui.common.PredictiveBackAxis
+import com.kite.zmusic.ui.common.dismissSoftwareImeIfAwake
+import com.kite.zmusic.ui.common.hideSoftwareIme
+import com.kite.zmusic.ui.common.isSoftwareImeVisible
 import com.kite.zmusic.ui.common.predictiveBackLayer
 import com.kite.zmusic.ui.common.rememberPredictiveBackUi
 import com.kite.zmusic.ui.main.CatalogOverlayHost
@@ -290,6 +296,9 @@ fun MainShell(
     val dockRestBottomLandscape = remember { mutableStateOf(landscape) }
     val density = LocalDensity.current
     val chromeView = LocalView.current
+    val activity = LocalActivity.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val mvActive by remember(app.mvPlayback) {
         app.mvPlayback.ui.map { it.active }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(app.mvPlayback.ui.value.active)
@@ -300,6 +309,31 @@ fun MainShell(
     val playerHeld = showFullPlayer || expand.mounted
     LaunchedEffect(playerHeld) {
         app.listenTogether.setPlayerForeground(playerHeld)
+    }
+    // 进播放页：监测输入法是否仍醒着；是则显性收回（覆盖自动/手动、横竖屏）。
+    LaunchedEffect(playerHeld) {
+        if (!playerHeld) return@LaunchedEffect
+        fun dismissIfAwake() {
+            dismissSoftwareImeIfAwake(
+                chromeView,
+                activity,
+                hideComposeKeyboard = { keyboard?.hide() },
+                clearComposeFocus = { focusManager.clearFocus(force = true) },
+            )
+        }
+        dismissIfAwake()
+        // insets / InputConnection 可能晚一拍；再补两次，仍醒则强制 hide。
+        delay(48)
+        dismissIfAwake()
+        delay(160)
+        if (isSoftwareImeVisible(chromeView) ||
+            chromeView.findFocus() != null ||
+            activity?.currentFocus != null
+        ) {
+            keyboard?.hide()
+            focusManager.clearFocus(force = true)
+            hideSoftwareIme(chromeView, activity)
+        }
     }
     // 播放页卸掉后 Compose insets 可能还有几帧是 0。多冻几帧，且冻结期内不要改 rest。
     var restPadLatch by remember { mutableIntStateOf(0) }
@@ -390,6 +424,13 @@ fun MainShell(
     }
 
     fun openFullPlayer() {
+        // 打开当下立刻收一次，避免展开动画期间键盘挡画面。
+        dismissSoftwareImeIfAwake(
+            chromeView,
+            activity,
+            hideComposeKeyboard = { keyboard?.hide() },
+            clearComposeFocus = { focusManager.clearFocus(force = true) },
+        )
         captureDockForPlayer()
         showFullPlayer = true
         expand.open()
@@ -412,6 +453,18 @@ fun MainShell(
         if (!pendingOpenPlayer) return@LaunchedEffect
         if (mvActive) {
             playback.consumeOpenPlayerRequest()
+            val mv = app.mvPlayback.ui.value
+            if (mv.mvId <= 0L) return@LaunchedEffect
+            // 通知栏点进：与歌曲进播放页对等，拉起当前 MV。
+            if (showFullPlayer || expand.mounted) closeFullPlayer()
+            pushOverlay(
+                MainOverlay.Mv(
+                    id = mv.mvId,
+                    title = mv.title,
+                    coverUrl = mv.coverUrl,
+                    artist = mv.artistLine,
+                ),
+            )
             return@LaunchedEffect
         }
         if (playingTrackId > 0L) {
@@ -1292,6 +1345,10 @@ fun MainShell(
                             pushOverlay(MainOverlay.Playlist(id, title, cover))
                             closeFullPlayer()
                         },
+                        onOpenAlbum = { id, title, _ ->
+                            pushOverlay(MainOverlay.Album(id, title))
+                            closeFullPlayer()
+                        },
                         onOpenArtist = { id, name, cover ->
                             pushOverlay(MainOverlay.Artist(id, name, cover))
                             closeFullPlayer()
@@ -1523,6 +1580,7 @@ private fun FullPlayerSlot(
     onDismiss: () -> Unit,
     onPlayInsertSong: (Long) -> Unit,
     onOpenSourcePlaylist: (Long, String, String?) -> Unit,
+    onOpenAlbum: (Long, String, String?) -> Unit,
     onOpenArtist: (Long, String, String?) -> Unit,
     onOpenUser: (Long, String, String?) -> Unit,
 ) {
@@ -1566,6 +1624,7 @@ private fun FullPlayerSlot(
         landscapeStartInset = 0.dp,
         onPlayInsertSong = onPlayInsertSong,
         onOpenPlaylist = onOpenSourcePlaylist,
+        onOpenAlbum = onOpenAlbum,
         onOpenSourcePlaylist = st.sourcePlaylistId?.let { plId ->
             {
                 val title = st.sourcePlaylistTitle ?: t("歌单")

@@ -112,7 +112,7 @@ private fun OfflineSectionPage(
     modifier: Modifier = Modifier,
 ) {
     val padH = mainContentPadH(isLandscape)
-    val openCommunityLogin = rememberCommunityLoginOpener(onPlaySong = onPlaySong)
+    val communityQr = rememberCommunityLoginOpener(onPlaySong = onPlaySong)
     Column(modifier.fillMaxSize()) {
         if (!isLandscape) {
             val headerMod = Modifier
@@ -126,7 +126,7 @@ private fun OfflineSectionPage(
                     modifier = headerMod,
                     trailing = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            HomeCommunityScanButton(onClick = openCommunityLogin)
+                            HomeCommunityScanButton(onClick = communityQr.openScanner)
                             Box(
                                 Modifier
                                     .size(40.dp)

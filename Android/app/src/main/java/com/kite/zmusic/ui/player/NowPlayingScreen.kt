@@ -167,7 +167,9 @@ import com.kite.zmusic.playback.PlaybackUiState
 import com.kite.zmusic.playback.PlaybackMode
 import com.kite.zmusic.playback.mergePlaylistQueue
 import com.kite.zmusic.ui.common.UrlImage
+import com.kite.zmusic.ui.common.dismissSoftwareImeIfAwake
 import com.kite.zmusic.ui.common.hideSoftwareIme
+import com.kite.zmusic.ui.common.isSoftwareImeVisible
 import com.kite.zmusic.ui.common.rememberNetworkOnline
 import com.kite.zmusic.ui.notice.showIslandNotice
 import dev.chrisbanes.haze.HazeState
@@ -204,6 +206,7 @@ fun NowPlayingScreen(
     onOpenSourcePlaylist: (() -> Unit)? = null,
     onPlayInsertSong: (Long) -> Unit = {},
     onOpenPlaylist: (Long, String, String?) -> Unit = { _, _, _ -> },
+    onOpenAlbum: (Long, String, String?) -> Unit = { _, _, _ -> },
     onOpenArtist: (() -> Unit)? = null,
     onOpenUser: (Long, String, String?) -> Unit = { _, _, _ -> },
     onPlayQueueIndex: (Int) -> Unit = {},
@@ -280,6 +283,29 @@ fun NowPlayingScreen(
     }
     val playerView = LocalView.current
     val activity = LocalActivity.current
+    // 播放页每次挂载：再监测一次 IME（横竖屏共用同一入口）。
+    LaunchedEffect(Unit) {
+        fun dismissIfAwake() {
+            dismissSoftwareImeIfAwake(
+                playerView,
+                activity,
+                hideComposeKeyboard = { keyboard?.hide() },
+                clearComposeFocus = { focusManager.clearFocus(force = true) },
+            )
+        }
+        dismissIfAwake()
+        delay(48)
+        dismissIfAwake()
+        delay(160)
+        if (isSoftwareImeVisible(playerView) ||
+            playerView.findFocus() != null ||
+            activity?.currentFocus != null
+        ) {
+            keyboard?.hide()
+            focusManager.clearFocus(force = true)
+            hideSoftwareIme(playerView, activity)
+        }
+    }
     DisposableEffect(keepScreenOn, playerView) {
         val previous = playerView.keepScreenOn
         if (keepScreenOn) {
@@ -294,7 +320,7 @@ fun NowPlayingScreen(
     val audioQuality by app.audioQualityStore.quality.collectAsStateWithLifecycle()
     val workshopAuth by app.workshopAuthStore.session.collectAsStateWithLifecycle()
     val listenUi by app.listenTogether.ui.collectAsStateWithLifecycle()
-    val openCommunityLogin = rememberCommunityLoginOpener(
+    val communityQr = rememberCommunityLoginOpener(
         offerWebsite = true,
         onPlaySong = onPlayInsertSong,
     )
@@ -371,7 +397,6 @@ fun NowPlayingScreen(
     // 歌词选择抽到小函数：避免在超大 Composable 里混用 List/Boolean 的 remember key（ART VerifyError）
     val lyricBundle = rememberDisplayLyrics(
         state = state,
-        isLandscape = isLandscape,
         portraitPrefs = portraitDisplayPrefs,
     )
     val lyricLines = lyricBundle.lines
@@ -853,7 +878,7 @@ fun NowPlayingScreen(
         closePortraitMore()
         if (workshopAuth == null) {
             pendingOpenListen = true
-            openCommunityLogin()
+            communityQr.openLogin()
         } else {
             openPortraitListen()
         }
@@ -1249,6 +1274,7 @@ fun NowPlayingScreen(
         onOpenUser = onOpenUser,
         onPlayInsertSong = onPlayInsertSong,
         onOpenPlaylist = onOpenPlaylist,
+        onOpenAlbum = onOpenAlbum,
         onPlayQueueIndex = onPlayQueueIndex,
         onNeedQueueThrough = ::needQueueThrough,
         trackLiked = trackLiked,
@@ -1350,7 +1376,7 @@ fun NowPlayingScreen(
         openPortraitComments = ::openPortraitComments,
         openPortraitListen = ::openPortraitListen,
         requestPortraitListen = ::requestPortraitListen,
-        openCommunityLogin = openCommunityLogin,
+        openCommunityScan = communityQr.openScanner,
         openPortraitWiki = ::openPortraitWiki,
         openPortraitSettings = ::openPortraitSettings,
         openPortraitPoster = ::openPortraitPoster,

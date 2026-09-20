@@ -8,6 +8,7 @@ import com.kite.zmusic.data.AudioOutputStore
 import com.kite.zmusic.data.LyricOverlayStore
 import com.kite.zmusic.data.LyricRenderStore
 import com.kite.zmusic.data.PersistentPlaybackStore
+import com.kite.zmusic.data.PrivacyStore
 import com.kite.zmusic.data.LandscapeModeStore
 import com.kite.zmusic.data.PredictiveBackStore
 import com.kite.zmusic.data.MiniQuickSkipStore
@@ -38,6 +39,8 @@ import com.kite.zmusic.data.ArtistRepository
 import com.kite.zmusic.data.CatalogRepository
 import com.kite.zmusic.data.CommentsRepository
 import com.kite.zmusic.data.CommunityLoginRepository
+import com.kite.zmusic.data.UApiProStore
+import com.kite.zmusic.data.uapipro.UApiProClient
 import com.kite.zmusic.data.CommunityServerStore
 import com.kite.zmusic.data.ChangelogRepository
 import com.kite.zmusic.data.CommunityXaiopClient
@@ -83,6 +86,8 @@ class AppContainer(app: Application) {
 
     val sessionRepository = SessionRepository(app)
     val communityServerStore = CommunityServerStore(app)
+    val uapiProStore = UApiProStore(app)
+    val uapiProClient = UApiProClient(httpClient)
     val workshopAuthStore = com.kite.zmusic.workshop.WorkshopAuthStore(app)
     val communityLoginRepository = CommunityLoginRepository(
         sessionRepository,
@@ -96,6 +101,7 @@ class AppContainer(app: Application) {
     val audioOutputStore = AudioOutputStore(app)
     val audioOutputController = AudioOutputController(app, audioOutputStore)
     val persistentPlaybackStore = PersistentPlaybackStore(app)
+    val privacyStore = PrivacyStore(app)
     val predictiveBackStore = PredictiveBackStore(app)
     val landscapeModeStore = LandscapeModeStore(app)
     val splashAccelStore = SplashAccelStore(app)
@@ -263,5 +269,6 @@ class AppContainer(app: Application) {
         songs = songRepository,
         session = sessionRepository,
         notices = islandNoticeCenter,
+        uapiPro = uapiProClient,
     )
 }

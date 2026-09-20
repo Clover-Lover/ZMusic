@@ -42,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -77,14 +78,15 @@ import com.kite.zmusic.data.AppAppearance
 import com.kite.zmusic.data.ChromeGlassStyle
 import com.kite.zmusic.data.MiniQuickSkipAxis
 import com.kite.zmusic.data.ServerConfigRepository
+import com.kite.zmusic.data.UApiProStore
 import com.kite.zmusic.i18n.I18n
 import com.kite.zmusic.i18n.t
 import com.kite.zmusic.plugin.PluginEngineVersion
 import com.kite.zmusic.ui.common.GlassAlertDialog
 import com.kite.zmusic.ui.common.GlassPromptField
 import com.kite.zmusic.ui.icons.ZIcons
-import com.kite.zmusic.ui.legal.AboutLegalGlassBody
 import com.kite.zmusic.ui.legal.AboutLegalKind
+import com.kite.zmusic.ui.legal.AboutLegalPage
 import com.kite.zmusic.ui.legal.aboutLegalTitle
 import com.kite.zmusic.ui.chrome.ChromeWallpaperBackdrop
 import com.kite.zmusic.ui.chrome.chromePage
@@ -102,6 +104,7 @@ import com.kite.zmusic.ui.server.CommunityServerViewModel
 import com.kite.zmusic.ui.server.CommunityServerViewModelFactory
 import com.kite.zmusic.ui.server.ServerConfigViewModel
 import com.kite.zmusic.ui.server.ServerConfigViewModelFactory
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val AboutGithubUrl = "https://github.com/AboutUip/ZMusic"
@@ -132,20 +135,31 @@ fun SettingsScreen(
         key = "settings-community-server",
         factory = CommunityServerViewModelFactory(communityStore),
     )
+    val uapiProStore = remember {
+        (context.applicationContext as ZMusicApplication).uapiProStore
+    }
     var endpointLabel by remember {
         mutableStateOf(maskEndpoint(serverConfig.currentEndpoint()))
     }
     var communityLabel by remember {
         mutableStateOf(maskEndpoint(communityStore.current()))
     }
+    var uapiProSubtitle by remember {
+        mutableStateOf(uapiProRowSubtitle(uapiProStore.current()))
+    }
     var editServer by remember { mutableStateOf(false) }
     var editCommunity by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
+    val uapiProVisible = remember { MutableTransitionState(false) }
+    var uapiProSaveToken by remember { mutableIntStateOf(0) }
     val aboutVisible = remember { MutableTransitionState(false) }
     val changelogVisible = remember { MutableTransitionState(false) }
     val sponsorVisible = remember { MutableTransitionState(false) }
     val partnersVisible = remember { MutableTransitionState(false) }
     val permissionsVisible = remember { MutableTransitionState(false) }
+    val privacyVisible = remember { MutableTransitionState(false) }
+    val unlockGrayDisclaimerVisible = remember { MutableTransitionState(false) }
+    var unlockGrayConfirmVisible by remember { mutableStateOf(false) }
     val qualityVisible = remember { MutableTransitionState(false) }
     val persistentPlaybackVisible = remember { MutableTransitionState(false) }
     val cacheVisible = remember { MutableTransitionState(false) }
@@ -170,6 +184,10 @@ fun SettingsScreen(
         (context.applicationContext as ZMusicApplication).persistentPlaybackStore
     }
     val persistentPlayback by persistentPlaybackStore.enabled.collectAsStateWithLifecycle()
+    val privacyStore = remember {
+        (context.applicationContext as ZMusicApplication).privacyStore
+    }
+    val songUnlockGray by privacyStore.songUnlockGray.collectAsStateWithLifecycle()
     val downloadAccelStore = remember {
         (context.applicationContext as ZMusicApplication).downloadAccelStore
     }
@@ -224,9 +242,18 @@ fun SettingsScreen(
     var confirmGlassLeave by remember { mutableStateOf(false) }
     var showAppreciate by remember { mutableStateOf(false) }
     var legalKind by remember { mutableStateOf<AboutLegalKind?>(null) }
+    val legalVisible = remember { MutableTransitionState(false) }
     val reveal = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         reveal.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
+    }
+    LaunchedEffect(aboutVisible.targetState) {
+        if (!aboutVisible.targetState) legalVisible.targetState = false
+    }
+    LaunchedEffect(unlockGrayDisclaimerVisible.targetState) {
+        if (!unlockGrayDisclaimerVisible.targetState) {
+            unlockGrayConfirmVisible = false
+        }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         permissionSnapshot = AppPermissionSnapshot.read(context)
@@ -305,6 +332,23 @@ fun SettingsScreen(
                         onClick = {
                             communityVm.reloadFromStore()
                             editCommunity = true
+                        },
+                    )
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 62.dp)
+                            .height(0.5.dp)
+                            .background(MainPalette.Hairline),
+                    )
+                    SettingsRow(
+                        title = t("UApiPro"),
+                        subtitle = uapiProSubtitle,
+                        icon = ZIcons.Extension,
+                        tint = Color(0xFF0EA5A0),
+                        onClick = {
+                            uapiProSaveToken = 0
+                            uapiProVisible.targetState = true
                         },
                     )
                 }
@@ -479,6 +523,24 @@ fun SettingsScreen(
                         icon = ZIcons.Security,
                         tint = Color(0xFF5E5CE6),
                         onClick = { permissionsVisible.targetState = true },
+                    )
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 62.dp)
+                            .height(0.5.dp)
+                            .background(MainPalette.Hairline),
+                    )
+                    SettingsRow(
+                        title = t("隐私"),
+                        subtitle = if (songUnlockGray) {
+                            t("歌曲解灰已开启")
+                        } else {
+                            t("默认关闭敏感能力")
+                        },
+                        icon = ZIcons.Lock,
+                        tint = Color(0xFF8E4EC6),
+                        onClick = { privacyVisible.targetState = true },
                     )
                     Box(
                         Modifier
@@ -671,6 +733,29 @@ fun SettingsScreen(
                     )
                 }
             }
+        }
+        SettingsDrillHost(
+            visibleState = uapiProVisible,
+            landscape = landscape,
+            title = t("UApiPro"),
+            onBack = { uapiProVisible.targetState = false },
+            actionLabel = t("保存"),
+            onAction = { uapiProSaveToken += 1 },
+        ) {
+            UApiProSettingsPage(
+                store = uapiProStore,
+                contentBottomInset = contentBottomInset,
+                saveToken = uapiProSaveToken,
+                onSaved = {
+                    uapiProSubtitle = uapiProRowSubtitle(uapiProStore.current())
+                    uapiProVisible.targetState = false
+                    context.showIslandNotice(t("UApiPro 已更新"))
+                },
+                onError = { msg ->
+                    context.showIslandNotice(msg)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         SettingsDrillHost(
             visibleState = qualityVisible,
@@ -891,14 +976,36 @@ fun SettingsScreen(
             visibleState = aboutVisible,
             landscape = landscape,
             title = t("关于"),
-            onBack = { aboutVisible.targetState = false },
-            backEnabled = legalKind == null && !showAppreciate,
+            onBack = {
+                legalVisible.targetState = false
+                aboutVisible.targetState = false
+            },
+            backEnabled = !legalVisible.targetState && !showAppreciate,
         ) {
             AboutPage(
                 contentBottomInset = contentBottomInset,
-                onOpenLegal = { legalKind = it },
+                onOpenLegal = { kind ->
+                    legalKind = kind
+                    legalVisible.targetState = true
+                },
                 modifier = Modifier.fillMaxSize(),
             )
+        }
+        SettingsDrillHost(
+            visibleState = legalVisible,
+            landscape = landscape,
+            title = legalKind?.let { aboutLegalTitle(it) }.orEmpty(),
+            onBack = { legalVisible.targetState = false },
+            coverZIndex = 5f,
+        ) {
+            val kind = legalKind
+            if (kind != null) {
+                AboutLegalPage(
+                    kind = kind,
+                    contentBottomInset = contentBottomInset,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         SettingsDrillHost(
             visibleState = changelogVisible,
@@ -944,6 +1051,64 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+        SettingsDrillHost(
+            visibleState = privacyVisible,
+            landscape = landscape,
+            title = t("隐私"),
+            onBack = {
+                unlockGrayDisclaimerVisible.targetState = false
+                privacyVisible.targetState = false
+            },
+            backEnabled = !unlockGrayDisclaimerVisible.targetState,
+        ) {
+            PrivacySettingsPage(
+                songUnlockGray = songUnlockGray,
+                onSongUnlockGrayChange = { want ->
+                    if (want) {
+                        unlockGrayDisclaimerVisible.targetState = true
+                    } else {
+                        privacyStore.setSongUnlockGray(false)
+                    }
+                },
+                contentBottomInset = contentBottomInset,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        SettingsDrillHost(
+            visibleState = unlockGrayDisclaimerVisible,
+            landscape = landscape,
+            title = t("歌曲解灰"),
+            onBack = {
+                if (unlockGrayConfirmVisible) {
+                    unlockGrayConfirmVisible = false
+                } else {
+                    unlockGrayDisclaimerVisible.targetState = false
+                }
+            },
+            coverZIndex = 5f,
+        ) {
+            UnlockGrayDisclaimerPage(
+                contentBottomInset = contentBottomInset,
+                onRequestConfirm = { unlockGrayConfirmVisible = true },
+                onCancel = { unlockGrayDisclaimerVisible.targetState = false },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        UnlockGrayConfirmOverlay(
+            visible = unlockGrayConfirmVisible,
+            landscape = landscape,
+            onConfirm = {
+                if (!unlockGrayConfirmVisible) return@UnlockGrayConfirmOverlay
+                unlockGrayConfirmVisible = false
+                settingsScope.launch {
+                    delay(180)
+                    privacyStore.setSongUnlockGray(true)
+                    unlockGrayDisclaimerVisible.targetState = false
+                    context.showIslandNotice(t("已强制开启歌曲解灰"))
+                }
+            },
+            onDismiss = { unlockGrayConfirmVisible = false },
+        )
         SettingsDrillHost(
             visibleState = predictiveBackVisible,
             landscape = landscape,
@@ -1182,17 +1347,6 @@ fun SettingsScreen(
             onDismiss = { confirmLogout = false },
         )
     }
-    legalKind?.let { kind ->
-        GlassAlertDialog(
-            title = aboutLegalTitle(kind),
-            message = null,
-            confirmLabel = t("我知道了"),
-            cancelLabel = null,
-            onConfirm = { legalKind = null },
-            onDismiss = { legalKind = null },
-            extraContent = { AboutLegalGlassBody(kind) },
-        )
-    }
     if (showAppreciate) {
         GlassAlertDialog(
             title = t("感谢投喂小小萱哦～"),
@@ -1242,6 +1396,7 @@ private fun SettingsDrillHost(
     onAction: (() -> Unit)? = null,
     backEnabled: Boolean = true,
     skipWallpaper: Boolean = false,
+    coverZIndex: Float = 4f,
     content: @Composable () -> Unit,
 ) {
     val backUi = rememberPredictiveBackUi(
@@ -1253,7 +1408,7 @@ private fun SettingsDrillHost(
         visibleState = visibleState,
         modifier = Modifier
             .fillMaxSize()
-            .zIndex(if (covering) 4f else 0f)
+            .zIndex(if (covering) coverZIndex else 0f)
             .predictiveBackLayer(backUi),
         enter = if (landscape) {
             LandscapeCoverEnter
@@ -1698,3 +1853,13 @@ private fun SettingsRow(
 
 private fun maskEndpoint(endpoint: ServerConfigRepository.Endpoint): String =
     ServerConfigRepository.maskEndpoint(endpoint)
+
+private fun uapiProRowSubtitle(credentials: UApiProStore.Credentials): String {
+    val key = credentials.apiKey.trim()
+    val url = credentials.baseUrl.trim()
+    return when {
+        key.isNotEmpty() -> UApiProStore.maskApiKey(key)
+        url.isNotEmpty() -> url
+        else -> t("未配置")
+    }
+}

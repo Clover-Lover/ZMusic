@@ -515,7 +515,7 @@ data class PlayerDisplayPrefs(
     /** 清屏范围：最底部工具栏 */
     val portraitLyricAutoClearToolbar: Boolean = true,
     /**
-     * 竖屏：有翻译歌词时显示译文。
+     * 竖屏设置：有翻译歌词时显示译文。横屏播放页共用。
      * 无译文的歌曲仍走原歌词。默认覆盖原文；[portraitLyricTranslationCoexist] 为并存。
      */
     val portraitLyricPreferTranslation: Boolean = false,

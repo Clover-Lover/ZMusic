@@ -14,12 +14,11 @@ import com.kite.zmusic.playback.PlaybackUiState
 @Composable
 internal fun rememberDisplayLyrics(
     state: PlaybackUiState,
-    isLandscape: Boolean,
     portraitPrefs: PlayerDisplayPrefs,
 ): DisplayLyricBundle {
     val app = LocalContext.current.applicationContext as ZMusicApplication
     val wordByWord by app.lyricRenderStore.wordByWord.collectAsStateWithLifecycle()
-    val prefer = !isLandscape && portraitPrefs.portraitLyricPreferTranslation
+    val prefer = portraitPrefs.portraitLyricPreferTranslation
     return pickDisplayLyricBundle(
         original = state.lyricLines.mapNotNull { it.sanitizedForDisplay() },
         translated = state.translatedLyricLines.mapNotNull { it.sanitizedForDisplay() },

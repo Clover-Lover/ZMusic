@@ -29,6 +29,13 @@ internal object DanmakuPlaylist {
     const val PREFETCH_REMAINING = 8
     const val HOT_SORT = 2
 
+    /**
+     * 是否发新弹幕。暂停、关闭、被上层遮挡时都不发；
+     * 已在场上的弹幕始终继续飞，不随暂停冻结。
+     */
+    fun canSpawn(enabled: Boolean, obscured: Boolean, playing: Boolean): Boolean =
+        enabled && !obscured && playing
+
     fun singleLineContent(raw: String): String? {
         val text = raw.trim()
         if (text.isEmpty()) return null

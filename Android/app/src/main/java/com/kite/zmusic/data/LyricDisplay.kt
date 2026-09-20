@@ -45,8 +45,9 @@ internal fun pickDisplayLyricLines(
 }
 
 /**
- * 竖屏翻译：覆盖仍走单列；并存时 [lines] 永远是原文时间轴，
+ * 播放页翻译：覆盖仍走单列；并存时 [lines] 永远是原文时间轴，
  * [companions] 按时间对齐的译文（无译文则为 null）。
+ * 开关与并存方式来自竖屏个性化，横屏共用。
  */
 internal fun pickDisplayLyricBundle(
     original: List<LrcLine>,
@@ -124,6 +125,15 @@ internal fun alignLyricCompanions(
         translated.minByOrNull { kotlin.math.abs(it.timeMs - src.timeMs) }
             ?.takeIf { kotlin.math.abs(it.timeMs - src.timeMs) <= 1_800L }
     }
+}
+
+internal fun orderedLyricPair(
+    original: LrcLine,
+    translation: LrcLine?,
+    originalOnTop: Boolean,
+): Pair<LrcLine, LrcLine?> {
+    val trans = translation ?: return original to null
+    return if (originalOnTop) original to trans else trans to original
 }
 
 /**
