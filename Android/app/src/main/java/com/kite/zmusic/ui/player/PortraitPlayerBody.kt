@@ -188,6 +188,8 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import androidx.compose.ui.unit.lerp as lerpDp
 import com.kite.zmusic.i18n.t
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
 
 internal data class PortraitPlayerSheetChrome(
     val settingsOpen: Boolean = false,
@@ -261,6 +263,7 @@ internal fun PortraitPlayerBody(
     onSeek: (Long) -> Unit = {},
     lyric: PortraitLyricOverlay = PortraitLyricOverlay(),
     hazeState: HazeState? = null,
+    playerLiquidBackdrop: LayerBackdrop? = null,
     modifier: Modifier = Modifier,
 ) {
     val onOpenMore = sheets.onOpenMore
@@ -421,6 +424,13 @@ internal fun PortraitPlayerBody(
     Box(
         Modifier
             .fillMaxSize()
+            .then(
+                if (playerLiquidBackdrop != null) {
+                    Modifier.layerBackdrop(playerLiquidBackdrop)
+                } else {
+                    Modifier
+                },
+            )
             .graphicsLayer {
                 scaleX = uiScale
                 scaleY = uiScale

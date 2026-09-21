@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -60,6 +61,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +71,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -118,6 +121,8 @@ private val ChatBubbleShape = RoundedCornerShape(14.dp)
 private val ChatComposerShape = RoundedCornerShape(18.dp)
 private val ChatActionPillShape = RoundedCornerShape(14.dp)
 private val ChatReplyBarShape = RoundedCornerShape(12.dp)
+private val ChatActionInSpec = tween<Float>(durationMillis = 200, easing = FastOutSlowInEasing)
+private val ChatActionOutSpec = tween<Float>(durationMillis = 140, easing = FastOutSlowInEasing)
 
 @Composable
 internal fun PortraitListenChatSheet(
@@ -147,7 +152,6 @@ internal fun PortraitListenChatSheet(
     var draft by remember { mutableStateOf(TextFieldValue("")) }
     var composerFocused by remember { mutableStateOf(false) }
     var emojiOpen by remember { mutableStateOf(false) }
-    var restoreAfterIme by remember { mutableStateOf(false) }
     var recentEmoji by remember { mutableStateOf(emptyList<String>()) }
     var actionMsgId by remember { mutableStateOf<Long?>(null) }
     var replyTo by remember { mutableStateOf<ListenChatReplyQuote?>(null) }
@@ -161,20 +165,17 @@ internal fun PortraitListenChatSheet(
         }
     }
     val newestId = chat.lastOrNull()?.id
+    val expandFullscreenUpdated by rememberUpdatedState(onExpandFullscreen)
+    val fullscreenUpdated by rememberUpdatedState(fullscreen)
     LaunchedEffect(ui.inRoom, ui.room?.id) {
         if (ui.inRoom) listen.markChatRead()
         if (!ui.inRoom) replyTo = null
     }
+    // 输入/表情只升全屏，避免 2/3 被 IME 压扁；点面板收键盘不打回半屏（箭头/返回才收）
     LaunchedEffect(composerFocused, emojiOpen) {
-        if (composerFocused) {
-            if (!fullscreen) {
-                restoreAfterIme = true
-                onExpandFullscreen()
-                delay(320)
-            }
-        } else if (restoreAfterIme && !emojiOpen) {
-            restoreAfterIme = false
-            onCollapseToTwoThirds()
+        if ((composerFocused || emojiOpen) && !fullscreenUpdated) {
+            expandFullscreenUpdated()
+            delay(320)
         }
     }
     LaunchedEffect(newestId, chat.size, imeBottom) {
@@ -208,10 +209,7 @@ internal fun PortraitListenChatSheet(
         actionMsgId = null
         replyTo = listenChatQuoteFromMsg(msg)
         emojiOpen = false
-        if (!fullscreen) {
-            restoreAfterIme = true
-            onExpandFullscreen()
-        }
+        if (!fullscreen) onExpandFullscreen()
         focusRequester.requestFocus()
         keyboard?.show()
     }
@@ -370,14 +368,10 @@ internal fun PortraitListenChatSheet(
                 onToggleEmoji = {
                     if (emojiOpen) {
                         emojiOpen = false
-                        restoreAfterIme = true
                         focusRequester.requestFocus()
                         keyboard?.show()
                     } else {
-                        if (!fullscreen) {
-                            restoreAfterIme = true
-                            onExpandFullscreen()
-                        }
+                        if (!fullscreen) onExpandFullscreen()
                         keyboard?.hide()
                         focusManager.clearFocus(force = true)
                         emojiOpen = true
@@ -429,7 +423,6 @@ private fun ChatRow(
     onTranslate: () -> Unit,
     onHideTranslation: () -> Unit,
 ) {
-    val density = LocalDensity.current
     val parsed = remember(msg.text) { parseListenChatText(msg.text) }
     val body = parsed.body.ifBlank { msg.text }
     Row(
@@ -478,20 +471,14 @@ private fun ChatRow(
                         )
                     }
                 }
-                if (menuOpen) {
-                    Popup(
-                        alignment = if (self) Alignment.TopEnd else Alignment.TopStart,
-                        offset = IntOffset(0, with(density) { (-52).dp.roundToPx() }),
-                        onDismissRequest = onDismissMenu,
-                        properties = PopupProperties(focusable = true),
-                    ) {
-                        ChatMessageActionBar(
-                            onCopy = onCopy,
-                            onReply = onReply,
-                            onTranslate = onTranslate,
-                        )
-                    }
-                }
+                ChatMessageActionPopup(
+                    visible = menuOpen,
+                    self = self,
+                    onDismissRequest = onDismissMenu,
+                    onCopy = onCopy,
+                    onReply = onReply,
+                    onTranslate = onTranslate,
+                )
             }
             val showTranslation = translation != null &&
                 translation.visible &&
@@ -511,6 +498,55 @@ private fun ChatRow(
         if (self) {
             Spacer(Modifier.width(8.dp))
             ChatAvatar(msg, onOpenUser)
+        }
+    }
+}
+
+@Composable
+private fun ChatMessageActionPopup(
+    visible: Boolean,
+    self: Boolean,
+    onDismissRequest: () -> Unit,
+    onCopy: () -> Unit,
+    onReply: () -> Unit,
+    onTranslate: () -> Unit,
+) {
+    val density = LocalDensity.current
+    val reveal = remember { Animatable(0f) }
+    var hosted by remember { mutableStateOf(false) }
+    LaunchedEffect(visible) {
+        if (visible) {
+            hosted = true
+            reveal.animateTo(1f, ChatActionInSpec)
+        } else if (hosted) {
+            reveal.animateTo(0f, ChatActionOutSpec)
+            hosted = false
+        }
+    }
+    if (!visible && !hosted) return
+    val t = reveal.value.coerceIn(0f, 1f)
+    val risePx = with(density) { 8.dp.toPx() }
+    Popup(
+        alignment = if (self) Alignment.TopEnd else Alignment.TopStart,
+        offset = IntOffset(0, with(density) { (-52).dp.roundToPx() }),
+        onDismissRequest = onDismissRequest,
+        properties = PopupProperties(focusable = true),
+    ) {
+        Box(
+            Modifier.graphicsLayer {
+                alpha = t
+                val s = 0.88f + 0.12f * t
+                scaleX = s
+                scaleY = s
+                translationY = (1f - t) * risePx
+                transformOrigin = TransformOrigin(if (self) 1f else 0f, 1f)
+            },
+        ) {
+            ChatMessageActionBar(
+                onCopy = onCopy,
+                onReply = onReply,
+                onTranslate = onTranslate,
+            )
         }
     }
 }

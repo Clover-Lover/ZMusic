@@ -2,6 +2,7 @@ package com.kite.zmusic.data
 
 import android.content.Context
 import android.content.res.Configuration
+import android.view.Surface
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -265,7 +266,33 @@ internal fun overlayWidthPercentFromStored(raw: Int, screenWidthDp: Float): Int 
 }
 
 /**
- * 悬浮窗可用屏尺寸：与当前朝向对齐。
+ * 系统 Display 的横/竖屏：由默认屏 [rotation] 相对自然分辨率得出。
+ * 不要用 Application / Activity 的 Configuration.orientation——小窗、竖屏锁会把它拧成 App 朝向。
+ */
+internal fun overlaySystemOrientation(
+    rotation: Int,
+    physicalWidth: Int,
+    physicalHeight: Int,
+): Int {
+    val rotated = rotation == Surface.ROTATION_90 || rotation == Surface.ROTATION_270
+    if (physicalWidth <= 0 || physicalHeight <= 0) {
+        return if (rotated) {
+            Configuration.ORIENTATION_LANDSCAPE
+        } else {
+            Configuration.ORIENTATION_PORTRAIT
+        }
+    }
+    val naturalLandscape = physicalWidth > physicalHeight
+    val landscape = naturalLandscape != rotated
+    return if (landscape) {
+        Configuration.ORIENTATION_LANDSCAPE
+    } else {
+        Configuration.ORIENTATION_PORTRAIT
+    }
+}
+
+/**
+ * 悬浮窗可用屏尺寸：与系统 Display 朝向对齐，而非 ZMusic 窗口朝向。
  * Application / 部分 OEM 的 WindowMetrics 在横屏仍回报竖屏短边，这里按 orientation 取长短边。
  */
 internal fun overlayDisplaySize(

@@ -156,6 +156,7 @@ import com.kite.zmusic.data.LyricRoleStyle
 import com.kite.zmusic.data.PlayerBackgroundPreset
 import com.kite.zmusic.data.PlayerDisplayPrefs
 import com.kite.zmusic.data.PlayerDisplayPrefsStore
+import com.kite.zmusic.data.LandscapePlayerPageType
 import com.kite.zmusic.data.PlaylistTrackLoader
 import com.kite.zmusic.data.TitleAlignMode
 import com.kite.zmusic.data.TitleLineStyle
@@ -408,7 +409,8 @@ fun NowPlayingScreen(
         (if (isLandscape) 120.dp else 112.dp).toPx()
     }
     // Animatable：连点开关会取消上一跳，从当前强度反向；时长按剩余路程缩放，打断可预测
-    val rainOn = PluginLookPresent.atmosphereRain(displayPrefs.rainNightEnabled)
+    val rainOn = PluginLookPresent.atmosphereRain(displayPrefs.rainNightEnabled) &&
+        !(isLandscape && displayPrefs.landscapePageType == LandscapePlayerPageType.Dynamic)
     val rainProgress = remember {
         Animatable(if (rainOn) 1f else 0f)
     }
@@ -1228,7 +1230,10 @@ fun NowPlayingScreen(
             )
         }
     }
-    val landscapeCustomBg = if (isLandscape) {
+    val landscapeCustomBg = if (
+        isLandscape &&
+        displayPrefs.landscapePageType != LandscapePlayerPageType.Dynamic
+    ) {
         PluginLookPresent.playerBackground() ?: displayPrefs.resolvedCustomBackground()
     } else {
         null

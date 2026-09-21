@@ -164,12 +164,15 @@ internal fun pageSheetHazeStyle(): HazeStyle {
 /**
  * 播放页浮层玻璃（弹幕等）：磨砂不依赖 Backdrop，只采 [haze]；
  * 液态有 Backdrop 才折射，否则退磨砂；纯色用 [solidColor]。
+ * [liquidLensHeight] 须低于圆角，过小会只剩一层雾。
  */
 internal fun Modifier.playerOverlayGlass(
     shape: Shape,
     haze: HazeState?,
     solidColor: Color = MainPalette.Surface,
     liquidSurface: Color = MainPalette.glassFill(0.28f),
+    liquidLensHeight: Dp = 5.3.dp,
+    liquidLensAmount: Dp = 10.7.dp,
 ): Modifier = composed {
     val style = LocalChromeGlassStyle.current
     val backdrop = LocalChromeBackdrop.current
@@ -191,8 +194,8 @@ internal fun Modifier.playerOverlayGlass(
                     style = style,
                     haze = hazeState,
                     liquidBlur = 2.2.dp,
-                    liquidLensHeight = 5.3.dp,
-                    liquidLensAmount = 10.7.dp,
+                    liquidLensHeight = liquidLensHeight,
+                    liquidLensAmount = liquidLensAmount,
                     highlightWidth = 0.5.dp,
                     highlightAlpha = 0.40f,
                     surface = liquidSurface,

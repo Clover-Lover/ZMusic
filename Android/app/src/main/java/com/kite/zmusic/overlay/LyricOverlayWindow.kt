@@ -8,6 +8,8 @@ import android.graphics.PixelFormat
 import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.ContextThemeWrapper
 import android.view.Display
@@ -40,6 +42,7 @@ import com.kite.zmusic.data.overlayDefaultY
 import com.kite.zmusic.data.overlayDisplaySize
 import com.kite.zmusic.data.overlayFixedWidthPx
 import com.kite.zmusic.data.overlayRemapCoord
+import com.kite.zmusic.data.overlaySystemOrientation
 import com.kite.zmusic.data.overlayWakesFromIdle
 import com.kite.zmusic.playback.PlaybackBridge
 import com.kite.zmusic.ui.lyricoverlay.LyricOverlayContent
@@ -60,6 +63,7 @@ internal class LyricOverlayWindow(
     private var host: OverlayComposeHost? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var configRegistered = false
+    private var lastLaidOutScreen: Pair<Int, Int>? = null
     private val layoutEpoch = MutableStateFlow(0)
     private val chromeIdle = MutableStateFlow(false)
     private val touchSlopPx = ViewConfiguration.get(app).scaledTouchSlop
@@ -96,11 +100,12 @@ internal class LyricOverlayWindow(
                 val prefs by store.prefsFlow.collectAsState()
                 val epoch by layoutEpoch.collectAsState()
                 val idleChrome by chromeIdle.collectAsState()
-                val maxWidthPx = remember(epoch) { displayWidthPx() }
+                val screen = remember(epoch) { screenSize() }
                 LyricOverlayContent(
                     playbackUi = playback.ui,
                     prefs = prefs,
-                    maxWidthPx = maxWidthPx,
+                    maxWidthPx = screen.first,
+                    screenHeightPx = screen.second,
                     onPrefs = { next -> store.update { next } },
                     onLock = { store.setLocked(true) },
                     onTogglePlay = { playback.togglePlayPause() },
@@ -124,21 +129,16 @@ internal class LyricOverlayWindow(
             return
         }
         applyAppearance(store.current())
-        if (!configRegistered) {
-            app.registerComponentCallbacks(configCallback)
-            configRegistered = true
-        }
+        startDisplayWatch()
     }
 
     fun hide() {
-        if (configRegistered) {
-            runCatching { app.unregisterComponentCallbacks(configCallback) }
-            configRegistered = false
-        }
+        stopDisplayWatch()
         val view = composeView ?: return
         runCatching { windowManager.removeViewImmediate(view) }
         composeView = null
         layoutParams = null
+        lastLaidOutScreen = null
         windowDragging = false
         pointerOnOverlay = false
         chromeIdle.value = false
@@ -148,23 +148,71 @@ internal class LyricOverlayWindow(
 
     private val configCallback = object : ComponentCallbacks {
         override fun onConfigurationChanged(newConfig: Configuration) {
-            val lp = layoutParams ?: return
-            val view = composeView ?: return
-            val prefs = store.current()
-            val screen = screenSize(newConfig.orientation)
-            val widthPx = overlayWidthPx(prefs, screen.first)
-            lp.width = windowWidthSpec(prefs, screen.first)
-            lp.y = clampedY(prefs, remapY(prefs, screen.second), screen.second)
-            lp.x = clampedX(remapX(prefs, screen.first), widthPx, screen.first)
-            lp.flags = overlayFlags(prefs)
-            applyCutoutMode(lp, prefs)
-            clearScreenBlur(lp)
-            layoutEpoch.value += 1
-            runCatching { windowManager.updateViewLayout(view, lp) }
+            relayoutForSystemDisplay()
         }
 
         @Suppress("OVERRIDE_DEPRECATION")
         override fun onLowMemory() = Unit
+    }
+
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            val watched = overlayDisplay(app, windowManager)?.displayId ?: Display.DEFAULT_DISPLAY
+            if (displayId != watched) return
+            relayoutForSystemDisplay()
+        }
+    }
+
+    private fun startDisplayWatch() {
+        if (configRegistered) return
+        app.registerComponentCallbacks(configCallback)
+        app.getSystemService(DisplayManager::class.java)
+            ?.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
+        configRegistered = true
+    }
+
+    private fun stopDisplayWatch() {
+        if (!configRegistered) return
+        runCatching { app.unregisterComponentCallbacks(configCallback) }
+        runCatching {
+            app.getSystemService(DisplayManager::class.java)
+                ?.unregisterDisplayListener(displayListener)
+        }
+        configRegistered = false
+    }
+
+    /** 按系统 Display 朝向重铺；忽略 Application 因小窗/竖屏锁而来的 orientation。 */
+    private fun relayoutForSystemDisplay() {
+        val lp = layoutParams ?: return
+        val view = composeView ?: return
+        val prefs = store.current()
+        val screen = screenSize()
+        val nextWidth = windowWidthSpec(prefs, screen.first)
+        val widthPx = overlayWidthPx(prefs, screen.first)
+        val nextX = clampedX(remapX(prefs, screen.first), widthPx, screen.first)
+        val nextY = clampedY(prefs, remapY(prefs, screen.second), screen.second)
+        val nextFlags = overlayFlags(prefs)
+        val nextCutout = cutoutMode(prefs)
+        if (lastLaidOutScreen == screen &&
+            lp.width == nextWidth &&
+            lp.x == nextX &&
+            lp.y == nextY &&
+            lp.flags == nextFlags &&
+            lp.layoutInDisplayCutoutMode == nextCutout
+        ) {
+            return
+        }
+        lastLaidOutScreen = screen
+        lp.width = nextWidth
+        lp.y = nextY
+        lp.x = nextX
+        lp.flags = nextFlags
+        applyCutoutMode(lp, prefs)
+        clearScreenBlur(lp)
+        layoutEpoch.value += 1
+        runCatching { windowManager.updateViewLayout(view, lp) }
     }
 
     private fun createLayoutParams(prefs: LyricOverlayPrefs): WindowManager.LayoutParams {
@@ -172,6 +220,7 @@ internal class LyricOverlayWindow(
         val w = overlayWidthPx(prefs, screen.first)
         val x = clampedX(remapX(prefs, screen.first), w, screen.first)
         val y = clampedY(prefs, remapY(prefs, screen.second), screen.second)
+        lastLaidOutScreen = screen
         return WindowManager.LayoutParams(
             windowWidthSpec(prefs, screen.first),
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -214,7 +263,11 @@ internal class LyricOverlayWindow(
             lp.x == nextX &&
             lp.y == nextY &&
             lp.width == nextWidth
-        ) return
+        ) {
+            lastLaidOutScreen = screen
+            return
+        }
+        lastLaidOutScreen = screen
         lp.flags = nextFlags
         lp.layoutInDisplayCutoutMode = nextCutout
         lp.width = nextWidth
@@ -415,13 +468,31 @@ internal class LyricOverlayWindow(
 
     private fun displayWidthPx(): Int = screenSize().first
 
-    private fun screenSize(orientation: Int = app.resources.configuration.orientation): Pair<Int, Int> {
+    private fun screenSize(): Pair<Int, Int> {
         val raw = rawDisplaySize()
-        return overlayDisplaySize(raw.first, raw.second, orientation)
+        return overlayDisplaySize(raw.first, raw.second, systemOrientation())
+    }
+
+    /** 默认屏旋转，不读 Application/Activity 配置（小窗会把后者拧成竖屏）。 */
+    private fun systemOrientation(): Int {
+        val display = overlayDisplay(app, windowManager)
+            ?: return overlayContext.resources.configuration.orientation
+        val mode = runCatching { display.mode }.getOrNull()
+        return overlaySystemOrientation(
+            rotation = display.rotation,
+            physicalWidth = mode?.physicalWidth ?: 0,
+            physicalHeight = mode?.physicalHeight ?: 0,
+        )
     }
 
     @Suppress("DEPRECATION")
     private fun rawDisplaySize(): Pair<Int, Int> {
+        val display = overlayDisplay(app, windowManager)
+        if (display != null) {
+            val point = Point()
+            runCatching { display.getRealSize(point) }
+            if (point.x > 0 && point.y > 0) return point.x to point.y
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val maxBounds = runCatching { windowManager.maximumWindowMetrics.bounds }.getOrNull()
             if (maxBounds != null && maxBounds.width() > 0 && maxBounds.height() > 0) {
@@ -432,11 +503,6 @@ internal class LyricOverlayWindow(
                 return curBounds.width() to curBounds.height()
             }
         }
-        val point = Point()
-        runCatching {
-            overlayDisplay(app, windowManager)?.getRealSize(point)
-        }
-        if (point.x > 0 && point.y > 0) return point.x to point.y
         val dm = overlayContext.resources.displayMetrics
         return dm.widthPixels.coerceAtLeast(1) to dm.heightPixels.coerceAtLeast(1)
     }
@@ -457,13 +523,13 @@ internal class LyricOverlayWindow(
 }
 
 private fun createOverlayWindowContext(app: Application): Context {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return app
+    val wm = app.getSystemService(WindowManager::class.java)
+    val display = overlayDisplay(app, wm) ?: return app
+    val displayContext = app.createDisplayContext(display)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return displayContext
     return runCatching {
-        val wm = app.getSystemService(WindowManager::class.java)
-        val display = overlayDisplay(app, wm) ?: return@runCatching app
-        app.createDisplayContext(display)
-            .createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null)
-    }.getOrDefault(app)
+        displayContext.createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null)
+    }.getOrDefault(displayContext)
 }
 
 /** Application 没有关联 Display，禁止 Context.getDisplay()。 */

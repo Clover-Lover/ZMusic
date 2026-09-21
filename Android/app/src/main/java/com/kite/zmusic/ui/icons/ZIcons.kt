@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.automirrored.rounded.Reply
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.AlignHorizontalCenter
+import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.BlurOn
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
@@ -131,6 +133,8 @@ object ZIcons {
     val Lyrics: ImageVector get() = Icons.Rounded.Lyrics
     val Menu: ImageVector get() = Icons.Rounded.Menu
     val Favorite: ImageVector get() = Icons.Rounded.Favorite
+    val FavoriteBorder: ImageVector get() = Icons.Rounded.FavoriteBorder
+    val Album: ImageVector get() = Icons.Rounded.Album
     val More: ImageVector get() = Icons.Rounded.MoreVert
     val MoreHoriz: ImageVector get() = Icons.Rounded.MoreHoriz
     val Comments: ImageVector get() = Icons.Rounded.ChatBubble

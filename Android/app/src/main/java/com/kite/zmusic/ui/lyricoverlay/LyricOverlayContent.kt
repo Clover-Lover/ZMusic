@@ -1,6 +1,5 @@
 package com.kite.zmusic.ui.lyricoverlay
 
-import android.content.res.Configuration
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -41,7 +40,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.SubcomposeLayout
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -79,6 +77,7 @@ fun LyricOverlayContent(
     playbackUi: StateFlow<PlaybackUiState>,
     prefs: LyricOverlayPrefs,
     maxWidthPx: Int,
+    screenHeightPx: Int,
     onPrefs: (LyricOverlayPrefs) -> Unit,
     onLock: () -> Unit,
     onTogglePlay: () -> Unit,
@@ -129,9 +128,9 @@ fun LyricOverlayContent(
         else -> 10.dp
     }
     val compact = overlayWidth < 200.dp
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val landscape = maxWidthPx > screenHeightPx
     val settingsMaxH = if (landscape) {
-        val screenH = LocalConfiguration.current.screenHeightDp.dp
+        val screenH = with(density) { screenHeightPx.toDp() }
         val lyricBudget = ((prefs.lineCount.coerceAtLeast(1) * 22) + 16).dp
         (screenH - lyricBudget - 64.dp).coerceIn(132.dp, 248.dp)
     } else {

@@ -209,6 +209,47 @@ class LyricOverlayLogicTest {
     }
 
     @Test
+    fun overlaySystemOrientationFollowsDisplayNotAppWindow() {
+        val phoneW = 1080
+        val phoneH = 2400
+        assertEquals(
+            android.content.res.Configuration.ORIENTATION_PORTRAIT,
+            overlaySystemOrientation(android.view.Surface.ROTATION_0, phoneW, phoneH),
+        )
+        assertEquals(
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE,
+            overlaySystemOrientation(android.view.Surface.ROTATION_90, phoneW, phoneH),
+        )
+        assertEquals(
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE,
+            overlaySystemOrientation(android.view.Surface.ROTATION_270, phoneW, phoneH),
+        )
+        assertEquals(
+            android.content.res.Configuration.ORIENTATION_PORTRAIT,
+            overlaySystemOrientation(android.view.Surface.ROTATION_180, phoneW, phoneH),
+        )
+        // 平板自然横屏：ROTATION_0 仍是横屏
+        assertEquals(
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE,
+            overlaySystemOrientation(android.view.Surface.ROTATION_0, 2560, 1600),
+        )
+        assertEquals(
+            android.content.res.Configuration.ORIENTATION_PORTRAIT,
+            overlaySystemOrientation(android.view.Surface.ROTATION_90, 2560, 1600),
+        )
+    }
+
+    @Test
+    fun overlaySizeUsesSystemRotationWhenAppWindowIsPortrait() {
+        // 横屏游戏 + ZMusic 竖屏小窗：Metrics 常仍是竖屏短边，App orientation 也是竖屏。
+        val system = overlaySystemOrientation(android.view.Surface.ROTATION_90, 1080, 2400)
+        assertEquals(
+            2400 to 1080,
+            overlayDisplaySize(1080, 2400, system),
+        )
+    }
+
+    @Test
     fun remapPortraitPositionToLandscapeKeepsPercentage() {
         val portraitW = 1080
         val landscapeW = 2400

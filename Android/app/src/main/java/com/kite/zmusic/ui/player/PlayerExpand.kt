@@ -31,6 +31,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import com.kite.zmusic.data.LandscapePlayerPageType
 import com.kite.zmusic.data.PlayerDisplayPrefs
 import com.kite.zmusic.data.TitleLineStyle
 import com.kite.zmusic.ui.theme.MainPalette
@@ -67,11 +68,17 @@ internal data class PlayerExpandLook(
     val titleFontMul: Float,
     val titleDestColor: Color,
     val landscape: Boolean,
+    val squareCover: Boolean = false,
+    val stageDest: Color = TextTheme.PlayerStage,
 ) {
     companion object {
         fun from(prefs: PlayerDisplayPrefs, landscape: Boolean): PlayerExpandLook {
             val ui = prefs.uiScale.coerceIn(PlayerDisplayPrefs.UI_MIN, PlayerDisplayPrefs.UI_MAX)
-            val titleMul = if (landscape) {
+            val squareCover = landscape &&
+                prefs.landscapePageType == LandscapePlayerPageType.Dynamic
+            val titleMul = if (squareCover) {
+                25f / 13f
+            } else if (landscape) {
                 val nameSp = TitleLineStyle.BASE_NAME_SP *
                     prefs.titleNameStyle.sanitizedFontScale()
                 nameSp / 13f * ui
@@ -90,8 +97,14 @@ internal data class PlayerExpandLook(
                     PlayerDisplayPrefs.VINYL_CENTER_RADIUS_MAX,
                 ),
                 titleFontMul = titleMul,
-                titleDestColor = if (landscape) prefs.titleNameColor() else LyricCurrent,
+                titleDestColor = when {
+                    squareCover -> Color(0xFF1C1C1E)
+                    landscape -> prefs.titleNameColor()
+                    else -> LyricCurrent
+                },
                 landscape = landscape,
+                squareCover = squareCover,
+                stageDest = if (squareCover) Color.White else TextTheme.PlayerStage,
             )
         }
     }
@@ -653,10 +666,11 @@ internal fun Modifier.playerExpandPlayPulse(pulse: Float): Modifier = composed {
 /** 舞台实底跟展开进度走，不再整层藏到结束。 */
 internal fun Modifier.playerExpandStageFill(): Modifier = composed {
     val expand = LocalPlayerExpand.current
+    val dest = expand?.look?.stageDest ?: TextTheme.PlayerStage
     val color = if (expand != null && expand.mounted && !expand.pastHandoff) {
-        expandCardColor(expand.visualProgress, TextTheme.PlayerStage)
+        expandCardColor(expand.visualProgress, dest)
     } else {
-        TextTheme.PlayerStage
+        dest
     }
     background(color)
 }

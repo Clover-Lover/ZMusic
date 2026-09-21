@@ -87,6 +87,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kite.zmusic.data.DanmakuRegion
+import com.kite.zmusic.data.LandscapePlayerPageType
 import com.kite.zmusic.data.PlayerDisplayPrefs
 import com.kite.zmusic.data.PreviewLyricAlign
 import com.kite.zmusic.data.TitleAlignMode
@@ -1333,6 +1334,25 @@ fun NowPlayingSettingsSheet(
                         .verticalScroll(scrollState, enabled = previewKey == null),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
+                SettingsCategory(title = t("播放页"), titleAlpha = dim) {
+                    SettingsAlpha(dim) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SettingsLandscapePageTypeRow(
+                                selected = prefs.landscapePageType,
+                                onSelect = { onPrefsChange(prefs.copy(landscapePageType = it)) },
+                            )
+                            SettingsSwitchRow(
+                                title = t("播放页屏幕常亮"),
+                                subtitle = t("仅横屏播放页生效，停留时屏幕不自动熄灭"),
+                                checked = prefs.keepScreenOn,
+                                colors = switchColors,
+                                onCheckedChange = { onPrefsChange(prefs.copy(keepScreenOn = it)) },
+                            )
+                        }
+                    }
+                }
+
+                if (prefs.landscapePageType == LandscapePlayerPageType.Focus) {
                 SettingsCategory(title = t("氛围"), titleAlpha = dim) {
                     SettingsAlpha(dim) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1376,13 +1396,6 @@ fun NowPlayingSettingsSheet(
                                 onCheckedChange = {
                                     onPrefsChange(prefs.copy(activeHalo = it))
                                 },
-                            )
-                            SettingsSwitchRow(
-                                title = t("播放页屏幕常亮"),
-                                subtitle = t("仅横屏播放页生效，停留时屏幕不自动熄灭"),
-                                checked = prefs.keepScreenOn,
-                                colors = switchColors,
-                                onCheckedChange = { onPrefsChange(prefs.copy(keepScreenOn = it)) },
                             )
                         }
                     }
@@ -1709,6 +1722,7 @@ fun NowPlayingSettingsSheet(
                         }
                     }
                 }
+                } // 专注页设置；动态页此项为空且不生效
             }
             } // if (portraitContent) else landscape
         }
@@ -1921,6 +1935,162 @@ private fun SettingsVinylColorRow(
                                 } else {
                                     chrome.hint
                                 },
+                                fontFamily = FontFamily.SansSerif,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                letterSpacing = 0.2.sp,
+                                textAlign = TextAlign.Center,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@SuppressLint("UnusedBoxWithConstraintsScope")
+@Composable
+private fun SettingsLandscapePageTypeRow(
+    selected: LandscapePlayerPageType,
+    onSelect: (LandscapePlayerPageType) -> Unit,
+) {
+    val chrome = LocalSettingsChrome.current
+    val modes = LandscapePlayerPageType.entries
+    val labels = listOf(t("专注"), t("动态"))
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val indicator = remember { Animatable(selected.ordinal.toFloat()) }
+    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(selected) {
+        indicator.animateTo(
+            targetValue = selected.ordinal.toFloat(),
+            animationSpec = spring(dampingRatio = 0.82f, stiffness = 380f),
+        )
+    }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RowShape)
+            .background(chrome.rowBg)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = t("播放页类型"),
+            style = TextStyle(
+                color = chrome.label,
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+            ),
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = t("专注黑胶或动态景深 · 滑动或点选"),
+            style = TextStyle(
+                color = chrome.hint,
+                fontFamily = FontFamily.SansSerif,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+            ),
+        )
+        Spacer(Modifier.height(10.dp))
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                .height(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(MainPalette.TrackOff)
+                .pointerInput(modes.size) {
+                    val segW = size.width / modes.size.toFloat()
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            dragOffsetPx = 0f
+                            scope.launch { indicator.stop() }
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            dragOffsetPx += dragAmount
+                            val live = (selected.ordinal + dragOffsetPx / segW)
+                                .coerceIn(0f, (modes.lastIndex).toFloat())
+                            scope.launch { indicator.snapTo(live) }
+                        },
+                        onDragEnd = {
+                            val segWPx = size.width / modes.size.toFloat()
+                            val idx = (selected.ordinal + dragOffsetPx / segWPx)
+                                .roundToInt()
+                                .coerceIn(0, modes.lastIndex)
+                            dragOffsetPx = 0f
+                            val next = modes[idx]
+                            if (next != selected) {
+                                onSelect(next)
+                            } else {
+                                scope.launch {
+                                    indicator.animateTo(
+                                        targetValue = selected.ordinal.toFloat(),
+                                        animationSpec = spring(
+                                            dampingRatio = 0.82f,
+                                            stiffness = 380f,
+                                        ),
+                                    )
+                                }
+                            }
+                        },
+                        onDragCancel = {
+                            dragOffsetPx = 0f
+                            scope.launch {
+                                indicator.animateTo(
+                                    targetValue = selected.ordinal.toFloat(),
+                                    animationSpec = spring(
+                                        dampingRatio = 0.82f,
+                                        stiffness = 380f,
+                                    ),
+                                )
+                            }
+                        },
+                    )
+                },
+        ) {
+            val segW = maxWidth / modes.size
+            val thumbPad = 3.dp
+            Box(
+                Modifier
+                    .offset {
+                        val x = with(density) {
+                            (segW * indicator.value + thumbPad).roundToPx()
+                        }
+                        IntOffset(x, 0)
+                    }
+                    .padding(vertical = thumbPad)
+                    .width(segW - thumbPad * 2)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(chrome.accent.copy(alpha = 0.16f))
+                    .border(
+                        width = 1.dp,
+                        color = chrome.accent.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(8.dp),
+                    ),
+            )
+            Row(Modifier.fillMaxSize()) {
+                modes.forEachIndexed { index, mode ->
+                    val active = selected == mode
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { onSelect(mode) },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = labels[index],
+                            style = TextStyle(
+                                color = if (active) chrome.accent else chrome.hint,
                                 fontFamily = FontFamily.SansSerif,
                                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                                 fontSize = 12.sp,

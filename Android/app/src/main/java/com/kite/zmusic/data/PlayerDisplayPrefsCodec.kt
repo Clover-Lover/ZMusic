@@ -314,6 +314,7 @@ fun lerpPlayerDisplayPrefs(
         danmakuRegion = pick(from.danmakuRegion, to.danmakuRegion),
         danmakuSpeed = lf(from.danmakuSpeed, to.danmakuSpeed),
         danmakuScale = lf(from.danmakuScale, to.danmakuScale),
+        landscapePageType = pick(from.landscapePageType, to.landscapePageType),
     )
 }
 

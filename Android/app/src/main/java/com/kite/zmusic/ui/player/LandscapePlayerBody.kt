@@ -25,6 +25,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -90,6 +91,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -127,6 +129,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.layout
@@ -147,9 +150,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kite.zmusic.R
 import com.kite.zmusic.ZMusicApplication
 import com.kite.zmusic.plugin.PluginSurfaces
 import com.kite.zmusic.plugin.PluginUiTarget
+import com.kite.zmusic.data.LandscapePlayerPageType
 import com.kite.zmusic.data.LrcLine
 import com.kite.zmusic.data.LrcParser
 import com.kite.zmusic.data.LyricRoleStyle
@@ -168,6 +173,7 @@ import com.kite.zmusic.playback.PlaybackUiState
 import com.kite.zmusic.playback.PlaybackMode
 import com.kite.zmusic.playback.mergePlaylistQueue
 import com.kite.zmusic.ui.common.UrlImage
+import com.kite.zmusic.ui.main.MainPalette
 import com.kite.zmusic.ui.notice.showIslandNotice
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -191,6 +197,23 @@ import kotlin.math.sin
 import androidx.compose.ui.unit.lerp as lerpDp
 import com.kite.zmusic.i18n.t
 
+
+/** 动态页底栏：直角浅色磨砂，采舞台内容做模糊。 */
+private val DynamicTransportHazeStyle = HazeStyle(
+    backgroundColor = Color.White.copy(alpha = 0.22f),
+    tints = listOf(
+        HazeTint(Color.White.copy(alpha = 0.38f)),
+    ),
+    blurRadius = 36.dp,
+    noiseFactor = 0.04f,
+    fallbackTint = HazeTint(Color.White.copy(alpha = 0.72f)),
+)
+
+/** 动态底栏控件带高度（不含 Home Indicator）。 */
+private val DynamicTransportBand = 36.dp
+
+/** 专注/动态切换：布局落地后再停留，遮住封面/舞台跳变。 */
+private const val PageTypeMaskHoldMs = 480L
 
 /** 右侧悬浮板离场：滑过面板宽 + 右缝，避免缝里还留一条再被卸掉。 */
 internal fun landscapeSideSheetSlideX(
@@ -234,6 +257,61 @@ private fun LandscapeExpandLinkedLayer(
             .alpha(t),
     ) {
         content()
+    }
+}
+
+/** 横屏播放页类型切换：与方向蒙版同款旋转黑胶。 */
+@Composable
+private fun LandscapePageTypeSwitchMask() {
+    val spin = rememberInfiniteTransition(label = "page_type_vinyl")
+    val rot by spin.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "spin",
+    )
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        appear.snapTo(0f)
+        appear.animateTo(1f, tween(240, easing = FastOutSlowInEasing))
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MainPalette.Page)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.graphicsLayer { alpha = appear.value },
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ic_logo_vinyl_z),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .graphicsLayer { rotationZ = rot },
+                contentScale = ContentScale.Crop,
+            )
+            Text(
+                text = t("正在切换播放页"),
+                modifier = Modifier.padding(top = 18.dp),
+                style = TextStyle(
+                    color = MainPalette.Secondary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                ),
+            )
+        }
     }
 }
 
@@ -380,6 +458,51 @@ internal fun LandscapePlayerBody(
     val forceVinylYCentered = editorVinylCentered || scoreVinylCentered || scoreFlight != null ||
         pickerVinylCentered
     // 设置 / 曲谱 / 自选编辑 / 选句 / 黑胶选歌与底部播放条互斥；编辑时强制隐藏（忽略常显）
+    val dynamicPage =
+        displayPrefs.landscapePageType == LandscapePlayerPageType.Dynamic
+    LaunchedEffect(dynamicPage) {
+        if (!dynamicPage) return@LaunchedEffect
+        if (vinylSongPickOpen || pickerVinylCentered) {
+            vinylSongPickOpen = false
+            pickerVinylCentered = false
+        }
+        if (lyricSelectOpen) {
+            lyricSelectOpen = false
+        }
+    }
+    var pageTypeMask by remember { mutableStateOf(false) }
+    var pageTypeMaskGen by remember { mutableIntStateOf(0) }
+    var pageTypeSwitchTick by remember { mutableIntStateOf(0) }
+    var pendingPageTypePrefs by remember { mutableStateOf<PlayerDisplayPrefs?>(null) }
+    val applyDisplayPrefs = rememberUpdatedState(onDisplayPrefsChange)
+    val pageTypeMaskAlpha by animateFloatAsState(
+        targetValue = if (pageTypeMask) 1f else 0f,
+        animationSpec = tween(if (pageTypeMask) 0 else 220),
+        label = "page_type_mask_alpha",
+    )
+    LaunchedEffect(pageTypeSwitchTick) {
+        if (pageTypeSwitchTick == 0) return@LaunchedEffect
+        val pending = pendingPageTypePrefs ?: return@LaunchedEffect
+        withFrameNanos { }
+        withFrameNanos { }
+        applyDisplayPrefs.value(pending)
+        if (pendingPageTypePrefs == pending) pendingPageTypePrefs = null
+        withFrameNanos { }
+        withFrameNanos { }
+        withFrameNanos { }
+        delay(PageTypeMaskHoldMs)
+        pageTypeMask = false
+    }
+    val onSettingsPrefsChange: (PlayerDisplayPrefs) -> Unit = { next ->
+        if (next.landscapePageType != displayPrefs.landscapePageType) {
+            pageTypeMask = true
+            pageTypeMaskGen++
+            pendingPageTypePrefs = next
+            pageTypeSwitchTick++
+        } else {
+            onDisplayPrefsChange(next)
+        }
+    }
     val showBar = (controlsVisible || sliderDragging || transportPinned) &&
         !settingsOpen &&
         !scoreOpen &&
@@ -436,6 +559,12 @@ internal fun LandscapePlayerBody(
         )
     }
     val chromeT = chrome.value
+    val expandVisualT = if (playerExpand != null && playerExpand.mounted) {
+        playerExpand.visualProgress
+    } else {
+        1f
+    }
+    val chromeVisualT = (chromeT * expandVisualT).coerceIn(0f, 1f)
 
     val settingsPanel = remember { Animatable(0f) }
     LaunchedEffect(settingsOpen) {
@@ -1289,6 +1418,7 @@ internal fun LandscapePlayerBody(
             closeSettings()
         }
     }
+    BackHandler(enabled = pageTypeMaskAlpha > 0.001f) { }
 
     LaunchedEffect(playerExpand) {
         val expand = playerExpand ?: return@LaunchedEffect
@@ -1330,16 +1460,19 @@ internal fun LandscapePlayerBody(
         controlsVisible = false
     }
 
-    val barSlidePx = with(density) { 52.dp.toPx() }
-    // 左右对称外边距：取导航条左右 inset 较大者，避免仅右侧避让导致播放条偏左
     val chromeLayoutDir = LocalLayoutDirection.current
     val navPads = WindowInsets.navigationBars.asPaddingValues()
     val navSideBalance = maxOf(
         navPads.calculateStartPadding(chromeLayoutDir),
         navPads.calculateEndPadding(chromeLayoutDir),
     )
+    val navBottom = navPads.calculateBottomPadding()
     val chromeSidePad = navSideBalance + 28.dp
     val chromeSidePadPx = with(density) { chromeSidePad.toPx() }
+    val overlayBottomPad = maxOf(chromeSidePad, navBottom + 12.dp)
+    val barSlidePx = with(density) { (52.dp + navBottom).toPx() }
+    val dynamicTransportH = DynamicTransportBand + navBottom
+    val dynamicBarSlidePx = with(density) { dynamicTransportH.toPx() }
 
     BoxWithConstraints(
         modifier
@@ -1470,6 +1603,30 @@ internal fun LandscapePlayerBody(
                 .hazeSource(state = settingsHazeState, zIndex = 1f)
                 .graphicsLayer { clip = false },
         ) {
+        if (dynamicPage) {
+            LandscapeDynamicStage(
+                track = track,
+                lines = lines,
+                lyricCompanions = lyricCompanions,
+                originalOnTop = originalOnTop,
+                showCompanionOnOthers = showCompanionOnOthers,
+                positionMs = if (lyricStyleSnapshot != null) {
+                    lyricStyleFrozenPositionMs
+                } else {
+                    positionMs
+                },
+                durationMs = durationMs,
+                onSkipNext = onSkipNext,
+                onSkipPrev = onSkipPrev,
+                onSeek = { ms ->
+                    onSeek(ms.coerceIn(0L, durationMs.coerceAtLeast(0L)))
+                },
+                onArtistClick = onArtistClick,
+                transportRevealT = chromeVisualT,
+                transportReserve = dynamicTransportH,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
         // 黑胶 / 歌词 / 标题同一缩放层，保证对齐坐标一致
         Box(
             Modifier
@@ -1765,9 +1922,10 @@ internal fun LandscapePlayerBody(
                 .align(Alignment.TopStart),
         )
         } // uiScale 内容层
+        } // 专注构图
         } // hazeSource：仅播放内容作磨砂源（chrome 提到叠层之上，避免被 OutsideDismiss 盖住）
 
-        if (danmakuLayerActive && track.id > 0L) {
+        if (!dynamicPage && danmakuLayerActive && track.id > 0L) {
             LandscapeDanmakuOverlay(
                 songId = track.id,
                 density = displayPrefs.danmakuDensity,
@@ -1812,14 +1970,14 @@ internal fun LandscapePlayerBody(
                     .clipToBounds()
                     .padding(
                         top = chromeSidePad,
-                        bottom = chromeSidePad,
+                        bottom = overlayBottomPad,
                         end = chromeSidePad,
                     ),
             ) {
                 val panelW = constraints.maxWidth.toFloat().coerceAtLeast(1f)
                 NowPlayingSettingsSheet(
                     prefs = displayPrefs,
-                    onPrefsChange = onDisplayPrefsChange,
+                    onPrefsChange = onSettingsPrefsChange,
                     hazeState = settingsHazeState,
                     onOpenVinylColorEditor = { openVinylColorEditor() },
                     onOpenLyricStyleEditor = { openLyricStyleEditor() },
@@ -1873,7 +2031,7 @@ internal fun LandscapePlayerBody(
                     .zIndex(9f)
                     .padding(
                         top = chromeSidePad,
-                        bottom = chromeSidePad,
+                        bottom = overlayBottomPad,
                         end = chromeSidePad,
                     ),
             ) {
@@ -2163,15 +2321,19 @@ internal fun LandscapePlayerBody(
                     PlayerDisplayPrefs.TRANSPORT_BOTTOM_INSET_MAX,
                 )
                 ?: 16f
-            val transportBottomPad = if (transportDocked) 0.dp else insetDp.dp
-            val transportShape = if (transportDocked) {
-                RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)
-            } else {
-                RoundedCornerShape(14.dp)
+            val transportBottomPad = when {
+                dynamicPage -> 0.dp
+                transportDocked -> 0.dp
+                else -> insetDp.dp
+            }
+            val transportShape = when {
+                dynamicPage -> RectangleShape
+                transportDocked -> RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)
+                else -> RoundedCornerShape(14.dp)
             }
             LandscapeExpandLinkedLayer(
                 chromeT = chromeT,
-                barSlidePx = barSlidePx,
+                barSlidePx = if (dynamicPage) dynamicBarSlidePx else barSlidePx,
                 uiScale = uiScale,
                 origin = TransformOrigin(0.5f, 1f),
                 slideFromBottom = true,
@@ -2183,20 +2345,39 @@ internal fun LandscapePlayerBody(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .padding(
-                        start = chromeSidePad,
-                        end = chromeSidePad,
-                        bottom = transportBottomPad,
+                    .then(
+                        if (dynamicPage) {
+                            Modifier.height(dynamicTransportH)
+                        } else {
+                            Modifier.padding(
+                                start = chromeSidePad,
+                                end = chromeSidePad,
+                                bottom = transportBottomPad,
+                            )
+                        },
                     )
                     .clip(transportShape)
-                    .background(Color.Black.copy(alpha = 0.22f))
+                    .then(
+                        if (dynamicPage) {
+                            Modifier.hazeEffect(
+                                state = settingsHazeState,
+                                style = DynamicTransportHazeStyle,
+                            )
+                        } else {
+                            Modifier.background(Color.Black.copy(alpha = 0.22f))
+                        },
+                    )
                     .clickable(
                         enabled = chromeT > 0.2f,
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = { revealControls() },
                     )
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp)
+                    .padding(
+                        top = if (dynamicPage) 4.dp else 8.dp,
+                        bottom = (if (dynamicPage) 2.dp else 8.dp) + navBottom,
+                    ),
             ) {
                 PlayerTransport(
                     isPlaying = playWhenReady,
@@ -2253,8 +2434,11 @@ internal fun LandscapePlayerBody(
                     },
                     portraitSlim = false,
                     landscapeDense = true,
-                    onOpenScore = {
-                        if (!controlsLocked) openScore()
+                    onLightSurface = dynamicPage,
+                    onOpenScore = if (dynamicPage) {
+                        null
+                    } else {
+                        { if (!controlsLocked) openScore() }
                     },
                 )
             }
@@ -2347,5 +2531,18 @@ internal fun LandscapePlayerBody(
                 }
             },
         )
+
+        if (pageTypeMaskAlpha > 0.001f) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .zIndex(10_000f)
+                    .alpha(pageTypeMaskAlpha),
+            ) {
+                key(pageTypeMaskGen) {
+                    LandscapePageTypeSwitchMask()
+                }
+            }
+        }
     }
 }

@@ -58,6 +58,7 @@ import com.kite.zmusic.data.LrcLine
 import com.kite.zmusic.data.LyricRoleStyle
 import com.kite.zmusic.data.PlayerBackgroundPreset
 import com.kite.zmusic.data.PlayerDisplayPrefs
+import com.kite.zmusic.data.LandscapePlayerPageType
 import com.kite.zmusic.data.TrackRow
 import com.kite.zmusic.plugin.PluginLookPresent
 import com.kite.zmusic.playback.PlaybackUiState
@@ -233,8 +234,7 @@ internal fun NowPlayingScreenLayers(
     SideEffect {
         expand?.reportLook(expandLook)
     }
-    val needPlayerLiquid =
-        isLandscape && LocalChromeGlassStyle.current.mode == ChromeGlassMode.Liquid
+    val needPlayerLiquid = LocalChromeGlassStyle.current.mode == ChromeGlassMode.Liquid
     val atmosphereBackdrop = rememberLayerBackdrop()
     val playerContentBackdrop = rememberLayerBackdrop()
     val playerOverlayBackdrop = rememberCombinedBackdrop(atmosphereBackdrop, playerContentBackdrop)
@@ -271,6 +271,9 @@ internal fun NowPlayingScreenLayers(
                         .fillMaxSize()
                         .playerExpandStageFill(),
                 )
+                val landscapeDynamic =
+                    displayPrefs.landscapePageType == LandscapePlayerPageType.Dynamic
+                if (!landscapeDynamic) {
                 Box(Modifier.fillMaxSize().playerExpandAtmosphereReveal()) {
                     GeminiOrbsBackdrop(
                         modifier = Modifier
@@ -298,12 +301,20 @@ internal fun NowPlayingScreenLayers(
                         )
                     }
                 }
+                }
             }
         } else {
             // 竖屏：自定义背景与光球交叉淡入；自定义图铺满含系统栏区域
             Box(
                 Modifier
                     .fillMaxSize()
+                    .then(
+                        if (needPlayerLiquid) {
+                            Modifier.layerBackdrop(atmosphereBackdrop)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .hazeSource(state = settingsHazeState, zIndex = 0f),
             ) {
                 // 不透明底：Fit 留白 / 交叉淡入时不透出主界面迷你条
@@ -365,9 +376,8 @@ internal fun NowPlayingScreenLayers(
                 // 左右边距对称交给底部播放条自行处理，避免 End-only inset 导致不居中。
                 .then(
                     if (isLandscape) {
-                        Modifier.windowInsetsPadding(
-                            WindowInsets.navigationBars.only(WindowInsetsSides.Bottom),
-                        )
+                        // 横屏全铺：底栏 / 动态页 chrome 自行侵入系统导航条，避免小白条外另留一条缝。
+                        Modifier
                     } else {
                         // 竖屏底部留给播放组件延伸到系统导航条区域做垂直居中
                         Modifier.windowInsetsPadding(
@@ -546,6 +556,7 @@ internal fun NowPlayingScreenLayers(
                         },
                     ),
                     hazeState = settingsHazeState,
+                    playerLiquidBackdrop = if (needPlayerLiquid) playerContentBackdrop else null,
                     modifier = Modifier.weight(1f),
                 )
             }

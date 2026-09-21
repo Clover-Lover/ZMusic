@@ -2,10 +2,12 @@ package com.kite.zmusic.ui.player
 
 import android.content.res.Configuration
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +23,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
@@ -74,15 +77,24 @@ internal fun PlayerExpandFlightLayer(
     if (!expand.mounted) return
     val density = LocalDensity.current
     val look = rememberFlightLook(expand)
-    val playFill = TextTheme.PlayerPlayFill
+    val playFill = if (look.squareCover) Color(0xFF1C1C1E) else TextTheme.PlayerPlayFill
     val p = expand.visualProgress
     val titleColor = lerpColor(TextTheme.MiniPlayerTitle, look.titleDestColor, p)
-    val playTint = lerpColor(TextTheme.MiniPlayerIcon, TextTheme.PlayerPlayIcon, p)
+    val playTint = lerpColor(
+        TextTheme.MiniPlayerIcon,
+        if (look.squareCover) Color.White else TextTheme.PlayerPlayIcon,
+        p,
+    )
 
     val miniCover = expand.toShell(expand.miniCover)
     val miniTitle = expand.toShell(expand.miniTitle)
     val miniPlay = expand.toShell(expand.miniPlay)
-    val destVinyl = flightVinylDest(expand, miniCover)
+    val destVinyl = if (look.squareCover) {
+        val cover = expand.toShell(expand.fullCover)
+        if (cover.isAnchorValid()) cover else miniCover
+    } else {
+        flightVinylDest(expand, miniCover)
+    }
     val styleT = (p / PlayerExpandHandoff).coerceIn(0f, 1f)
     val destCoverT = if (look.vinylFullCover) 1f else 0f
     val coverT = lerp(0f, destCoverT, styleT)
@@ -114,12 +126,76 @@ internal fun PlayerExpandFlightLayer(
                         translationY = move.y
                         scaleX = scale
                         scaleY = scale
-                        rotationZ = flightVinylRotationDeg(p, expand.flightSpinFromDeg)
+                        rotationZ = if (look.squareCover) {
+                            0f
+                        } else {
+                            flightVinylRotationDeg(p, expand.flightSpinFromDeg)
+                        }
                         clip = false
                         shadowElevation = 0f
                     },
                 contentAlignment = Alignment.Center,
             ) {
+                if (look.squareCover) {
+                    val scaleEnd = flightUniformScale(miniCover, destVinyl, 1f).coerceAtLeast(0.01f)
+                    val destOuter = with(density) { 8.dp.toPx() } / scaleEnd
+                    val destInner = with(density) { 6.dp.toPx() } / scaleEnd
+                    val destPad = with(density) { 5.dp.toPx() } / scaleEnd
+                    val outerR = lerp(corner0, destOuter, styleT)
+                    val innerR = lerp(corner0, destInner, styleT)
+                    val padPx = destPad * styleT
+                    val fadeA = 0.32f * styleT
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                shadowElevation = lerp(0f, 8.dp.toPx(), styleT)
+                                clip = false
+                            }
+                            .clip(RoundedCornerShape(with(density) { outerR.toDp() }))
+                            .background(Color.White.copy(alpha = styleT)),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .padding(with(density) { padPx.toDp() })
+                                .clip(RoundedCornerShape(with(density) { innerR.toDp() })),
+                        ) {
+                            UrlImage(
+                                url = track.coverUrl,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                            if (fadeA > 0.01f) {
+                                Box(
+                                    Modifier
+                                        .matchParentSize()
+                                        .background(
+                                            Brush.verticalGradient(
+                                                0.00f to Color.White.copy(alpha = fadeA),
+                                                0.11f to Color.Transparent,
+                                                0.89f to Color.Transparent,
+                                                1.00f to Color.White.copy(alpha = fadeA),
+                                            ),
+                                        ),
+                                )
+                                Box(
+                                    Modifier
+                                        .matchParentSize()
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                0.00f to Color.White.copy(alpha = fadeA),
+                                                0.11f to Color.Transparent,
+                                                0.89f to Color.Transparent,
+                                                1.00f to Color.White.copy(alpha = fadeA),
+                                            ),
+                                        ),
+                                )
+                            }
+                        }
+                    }
+                } else {
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -157,6 +233,7 @@ internal fun PlayerExpandFlightLayer(
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,
                     )
+                }
                 }
             }
         }
@@ -253,6 +330,7 @@ internal fun PlayerExpandFlightProgress(
     modifier: Modifier = Modifier,
 ) {
     if (!expand.mounted) return
+    val look = rememberFlightLook(expand)
     val mini = expand.toShell(expand.miniProgress)
     if (!mini.isProgressAnchorValid()) return
     val density = LocalDensity.current
@@ -292,13 +370,29 @@ internal fun PlayerExpandFlightProgress(
         bar.right,
         if (timesAbove) bar.top else bar.center.y,
     )
-    val timeColor = TextTheme.PlayerTime.copy(alpha = if (landscape) 0.7f else 0.92f)
+    val timeColor = if (look.squareCover) {
+        Color(0xFF6E6E6E)
+    } else {
+        TextTheme.PlayerTime.copy(alpha = if (landscape) 0.7f else 0.92f)
+    }
     val timeWeight = if (landscape) FontWeight.Normal else FontWeight.Medium
     val active0 = MainPalette.Accent
     val off0 = MainPalette.Hairline
-    val active1 = TextTheme.PlayerProgressActive
-    val off1 = TextTheme.PlayerProgressOff
-    val thumb1 = TextTheme.PlayerProgressThumb
+    val active1 = if (look.squareCover) {
+        Color(0xFF2F2F2F).copy(alpha = 0.82f)
+    } else {
+        TextTheme.PlayerProgressActive
+    }
+    val off1 = if (look.squareCover) {
+        Color(0xFF2F2F2F).copy(alpha = 0.16f)
+    } else {
+        TextTheme.PlayerProgressOff
+    }
+    val thumb1 = if (look.squareCover) {
+        Color(0xFF2F2F2F)
+    } else {
+        TextTheme.PlayerProgressThumb
+    }
     val destThumbW = with(density) { PlayerProgressHandle.ThumbWidth.toPx() }
     val destGap = with(density) { PlayerProgressHandle.TrackGap.toPx() }
     val destInside = with(density) { PlayerProgressHandle.InsideCorner.toPx() }

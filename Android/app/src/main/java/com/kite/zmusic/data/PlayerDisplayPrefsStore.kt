@@ -4,6 +4,20 @@ import android.content.Context
 import android.content.SharedPreferences
 import kotlin.math.roundToInt
 
+/** 横屏全屏播放页构图。 */
+enum class LandscapePlayerPageType {
+    /** 黑胶 + 投影歌词（当前默认） */
+    Focus,
+    /** 方封 + 景深歌词 */
+    Dynamic,
+    ;
+
+    companion object {
+        fun fromOrdinal(v: Int): LandscapePlayerPageType =
+            entries.getOrElse(v) { Focus }
+    }
+}
+
 /** 横屏歌名信息块水平对齐方式。 */
 enum class TitleAlignMode {
     /** 对齐底部播放条左缘 */
@@ -564,6 +578,10 @@ data class PlayerDisplayPrefs(
     val danmakuSpeed: Float = DANMAKU_SPEED_DEFAULT,
     /** 弹幕整体大小倍率：1 = 默认字号 / 头像 / 高度 */
     val danmakuScale: Float = DANMAKU_SCALE_DEFAULT,
+    /**
+     * 横屏播放页类型。竖屏偏好文件也会写入该键，但不参与竖屏布局。
+     */
+    val landscapePageType: LandscapePlayerPageType = LandscapePlayerPageType.Focus,
 ) {
     fun activeCustomPreset(): VinylCustomPreset =
         vinylCustomPresets.getOrElse(vinylCustomPresetIndex.coerceIn(0, VINYL_CUSTOM_PRESET_COUNT - 1)) {
@@ -1175,6 +1193,12 @@ class PlayerDisplayPrefsStore(
                 KEY_DANMAKU_SCALE,
                 PlayerDisplayPrefs.DANMAKU_SCALE_DEFAULT,
             ),
+            landscapePageType = LandscapePlayerPageType.fromOrdinal(
+                prefs.safeInt(
+                    KEY_LANDSCAPE_PAGE_TYPE,
+                    LandscapePlayerPageType.Focus.ordinal,
+                ),
+            ),
         )
     }
 
@@ -1280,6 +1304,7 @@ class PlayerDisplayPrefsStore(
                 .putInt(KEY_DANMAKU_REGION, v.danmakuRegion.ordinal)
                 .putFloat(KEY_DANMAKU_SPEED, v.danmakuSpeed)
                 .putFloat(KEY_DANMAKU_SCALE, v.danmakuScale)
+                .putInt(KEY_LANDSCAPE_PAGE_TYPE, v.landscapePageType.ordinal)
                 .apply()
         }
     }
@@ -1391,6 +1416,7 @@ class PlayerDisplayPrefsStore(
         private const val KEY_DANMAKU_OFFSET_Y = "danmaku_offset_y_percent"
         private const val KEY_DANMAKU_SPEED = "danmaku_speed"
         private const val KEY_DANMAKU_SCALE = "danmaku_scale"
+        private const val KEY_LANDSCAPE_PAGE_TYPE = "landscape_page_type"
     }
 }
 

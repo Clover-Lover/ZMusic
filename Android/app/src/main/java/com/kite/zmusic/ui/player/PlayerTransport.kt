@@ -220,6 +220,7 @@ internal fun PlayerTransport(
     onToggleLike: () -> Unit,
     portraitSlim: Boolean = false,
     landscapeDense: Boolean = false,
+    onLightSurface: Boolean = false,
     controlsLocked: Boolean = false,
     onOpenScore: (() -> Unit)? = null,
     onOpenQuality: (() -> Unit)? = null,
@@ -267,17 +268,23 @@ internal fun PlayerTransport(
         animationSpec = spring(dampingRatio = 0.62f, stiffness = 320f),
         label = "playPulse",
     )
-    val iconTint = if (controlsLocked) {
-        TextTheme.PlayerTransportLocked
-    } else {
-        TextTheme.PlayerTransport
+    val lightPanel = landscapeDense && onLightSurface
+    val iconTint = when {
+        lightPanel && controlsLocked -> Color(0xFF8A8A8A)
+        lightPanel -> Color(0xFF2F2F2F)
+        controlsLocked -> TextTheme.PlayerTransportLocked
+        else -> TextTheme.PlayerTransport
     }
+    val playFill = if (lightPanel) Color(0xFF1C1C1E) else TextTheme.PlayerPlayFill
+    val playIcon = if (lightPanel) Color.White else TextTheme.PlayerPlayIcon
     val playSize = when {
+        lightPanel -> 26.dp
         landscapeDense -> 36.dp
         portraitSlim -> 50.dp
         else -> 52.dp
     }
     val skipHit = when {
+        lightPanel -> 30.dp
         landscapeDense -> 34.dp
         portraitSlim -> 50.dp
         else -> 48.dp
@@ -293,17 +300,29 @@ internal fun PlayerTransport(
     val portraitAlignPad = trackCapRadius
     val portraitBottomBandHeight = 36.dp
     val timeStyle = TextStyle(
-        color = TextTheme.PlayerTime.copy(alpha = if (portraitSlim) 0.92f else 0.7f),
+        color = if (lightPanel) {
+            Color(0xFF6E6E6E)
+        } else {
+            TextTheme.PlayerTime.copy(alpha = if (portraitSlim) 0.92f else 0.7f)
+        },
         fontFamily = FontFamily.Monospace,
         fontSize = if (landscapeDense) 11.sp else if (portraitSlim) 11.sp else 10.sp,
         letterSpacing = 0.3.sp,
         fontWeight = if (portraitSlim) FontWeight.Medium else FontWeight.Normal,
     )
-    val sliderColors = SliderDefaults.colors(
-        thumbColor = TextTheme.PlayerProgressThumb,
-        activeTrackColor = TextTheme.PlayerProgressActive,
-        inactiveTrackColor = TextTheme.PlayerProgressOff,
-    )
+    val sliderColors = if (lightPanel) {
+        SliderDefaults.colors(
+            thumbColor = Color(0xFF2F2F2F),
+            activeTrackColor = Color(0xFF2F2F2F).copy(alpha = 0.82f),
+            inactiveTrackColor = Color(0xFF2F2F2F).copy(alpha = 0.16f),
+        )
+    } else {
+        SliderDefaults.colors(
+            thumbColor = TextTheme.PlayerProgressThumb,
+            activeTrackColor = TextTheme.PlayerProgressActive,
+            inactiveTrackColor = TextTheme.PlayerProgressOff,
+        )
+    }
 
     // 横屏：全宽简约条 — 左：模式+传输+喜欢；右：当前时间 | 进度 | 总时长（同一水平线）
     if (landscapeDense) {
@@ -347,7 +366,7 @@ internal fun PlayerTransport(
                     .playerExpandPlayPulse(playPulse)
                     .size(playSize)
                     .clip(CircleShape)
-                    .background(TextTheme.PlayerPlayFill)
+                    .background(playFill)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -359,7 +378,7 @@ internal fun PlayerTransport(
                     playing = isPlaying,
                     buffering = buffering,
                     size = 16.dp,
-                    tint = TextTheme.PlayerPlayIcon,
+                    tint = playIcon,
                 )
             }
             Box(

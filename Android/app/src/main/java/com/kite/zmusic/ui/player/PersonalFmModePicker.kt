@@ -189,7 +189,12 @@ internal fun PersonalFmModePickerOverlay(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer { alpha = glassMix }
-                        .playerOverlayGlass(panelShape, haze),
+                        .playerOverlayGlass(
+                            shape = panelShape,
+                            haze = haze,
+                            liquidLensHeight = 10.7.dp,
+                            liquidLensAmount = 21.3.dp,
+                        ),
                 )
             }
             if (contentA > 0.02f) {

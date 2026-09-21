@@ -118,6 +118,7 @@ import com.kite.zmusic.ui.player.PlayerExpandFlightLayer
 import com.kite.zmusic.ui.player.PlayerExpandFlightProgress
 import com.kite.zmusic.ui.player.PlayerExpandHost
 import com.kite.zmusic.ui.player.PlayerExpandState
+import com.kite.zmusic.ui.theme.TextTheme
 import com.kite.zmusic.ui.player.formulaMiniBarRect
 import com.kite.zmusic.ui.player.isAnchorValid
 import com.kite.zmusic.ui.player.preferCloseMiniBar
@@ -1334,7 +1335,7 @@ fun MainShell(
             ) {
                 PlayerExpandHost(
                     expand = expand,
-                    stageColor = TextTheme.PlayerStage,
+                    stageColor = expand.look?.stageDest ?: TextTheme.PlayerStage,
                 ) {
                     FullPlayerSlot(
                         playback = playback,
