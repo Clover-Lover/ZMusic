@@ -41,6 +41,7 @@ data class LibraryUiState(
     val albumsLoadingMore: Boolean = false,
     val albumsError: String? = null,
     val likedTrackCount: Int = 0,
+    val unavailable: List<String> = emptyList(),
     val sheet: LibrarySheet = LibrarySheet.Hidden,
     /** 当前详情是否为「我喜欢的音乐」（用于展示刷新按钮） */
     val sheetIsHeart: Boolean = false,
@@ -80,6 +81,7 @@ class LibraryViewModel(
                         profile = snap.profile,
                         subcount = snap.subcount,
                         likedTrackCount = snap.likedTrackCount,
+                        unavailable = snap.unavailable,
                     )
                 }
             }

@@ -50,8 +50,15 @@ class ZMusicApplication : Application() {
     val ncmUserClient: NcmUserClient get() = container.ncmUserClient
     val ncmAuthClient get() = container.ncmAuthClient
     val sessionRepository: SessionRepository get() = container.sessionRepository
+    val musicPlatformStore get() = container.musicPlatformStore
+    val qishuiCatalog get() = container.qishuiCatalog
+    val openMusicCatalog get() = container.openMusicCatalog
+    val qishuiSessionStore get() = container.qishuiSessionStore
+    val customPlaySourceStore get() = container.customPlaySourceStore
+    val customPlaySourceClient get() = container.customPlaySourceClient
     val communityServerStore get() = container.communityServerStore
     val uapiProStore get() = container.uapiProStore
+    val betterNcmMarketStore get() = container.betterNcmMarketStore
     val uapiProClient get() = container.uapiProClient
     val communityLoginRepository get() = container.communityLoginRepository
     val audioQualityStore: AudioQualityStore get() = container.audioQualityStore
@@ -156,6 +163,20 @@ class ZMusicApplication : Application() {
         val offline = container.networkMode.state.value.phase == NetworkPhase.Offline
         container.pluginEngine.setHostFacts(currentPluginHostFacts())
         container.pluginEngine.start(offline = offline)
+        appScope.launch {
+            var first = true
+            musicPlatformStore.currentFlow.collect {
+                if (first) {
+                    first = false
+                    return@collect
+                }
+                homeFeedRepository.clear()
+                libraryHomeRepository.clear()
+                playlistTracksCache.clear()
+                homeFeedRepository.ensureLoaded()
+                libraryHomeRepository.prefetchOnAppReady()
+            }
+        }
         container.listenTogether.start()
         registerActivityLifecycleCallbacks(PluginForegroundCallbacks())
         appScope.launch {

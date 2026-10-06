@@ -10,6 +10,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -20,12 +21,16 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kite.zmusic.ZMusicApplication
 import com.kite.zmusic.data.SessionRepository
+import com.kite.zmusic.data.platform.MusicPlatform
 import com.kite.zmusic.ui.notice.showIslandNotice
+import com.kite.zmusic.ui.player.PlayerDisplayQr
 import com.kite.zmusic.ui.theme.MainPalette
 import com.kite.zmusic.i18n.t
+import kotlinx.coroutines.delay
 
 internal enum class LoginMethod {
     Qr,
@@ -33,6 +38,13 @@ internal enum class LoginMethod {
     PhonePwd,
     Email,
 }
+
+internal class LoginQrExternal(
+    val image: ImageBitmap?,
+    val hint: String,
+    val caption: String,
+    val onRefresh: () -> Unit,
+)
 
 /**
  * 多方式登录：竖屏、横屏均对齐网易云落地页（白底、品牌红胶囊、协议后下钻）。
@@ -45,6 +57,7 @@ fun LoginScreen(
     modifier: Modifier = Modifier,
 ) {
     val app = LocalContext.current.applicationContext as ZMusicApplication
+    val platform by app.musicPlatformStore.currentFlow.collectAsStateWithLifecycle()
     val vm: LoginViewModel = viewModel(
         factory = LoginViewModelFactory(sessionRepository, app.ncmAuthClient),
     )
@@ -63,6 +76,26 @@ fun LoginScreen(
     val isLandscape =
         LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val qrActive = method == LoginMethod.Qr && qrVisible
+    val qishuiLogin = platform == MusicPlatform.QISHUI
+    var qishuiImage by remember { mutableStateOf<ImageBitmap?>(null) }
+    var qishuiHint by remember { mutableStateOf("") }
+    var qishuiRefresh by remember { mutableIntStateOf(0) }
+    val qishuiQr = if (!qishuiLogin) {
+        null
+    } else {
+        LoginQrExternal(
+            image = qishuiImage,
+            hint = qishuiHint,
+            caption = t("请用汽水音乐扫码"),
+            onRefresh = { qishuiRefresh += 1 },
+        )
+    }
+
+    fun selectPlatform(next: MusicPlatform) {
+        if (next == platform) return
+        app.musicPlatformStore.set(next)
+        if (!next.reloginOnSwitch) onLoggedIn()
+    }
 
     fun continueSmsAfterRegister(phone: String) {
         vm.prepareSmsAfterRegister(phone)
@@ -93,6 +126,9 @@ fun LoginScreen(
                 resumeSms = resumeSms,
                 onResumeSmsConsumed = { resumeSms = false },
                 err = err,
+                platform = platform,
+                onSelectPlatform = ::selectPlatform,
+                qrExternal = qishuiQr,
             )
         } else {
             LoginPortraitHost(
@@ -105,6 +141,9 @@ fun LoginScreen(
                 resumeSms = resumeSms,
                 onResumeSmsConsumed = { resumeSms = false },
                 err = err,
+                platform = platform,
+                onSelectPlatform = ::selectPlatform,
+                qrExternal = qishuiQr,
             )
             RegisterOverlay(
                 visible = registerOpen,
@@ -149,14 +188,61 @@ fun LoginScreen(
         }
     }
 
-    LaunchedEffect(qrActive) {
-        if (qrActive && vm.qrImageBase64 == null) vm.loadQrSession()
+    LaunchedEffect(qrActive, platform) {
+        if (qrActive && platform == MusicPlatform.NETEASE && vm.qrImageBase64 == null) vm.loadQrSession()
     }
 
-    LaunchedEffect(qrImg, qrActive, vm.qrRescue, vm.qrLoginUrl) {
+    LaunchedEffect(qrImg, qrActive, platform, vm.qrRescue, vm.qrLoginUrl) {
+        if (platform != MusicPlatform.NETEASE) return@LaunchedEffect
         if ((qrActive || vm.qrRescue) && (qrImg != null || vm.qrLoginUrl.isNotEmpty())) {
             vm.runQrPolling(onLoggedIn)
         }
+    }
+
+    LaunchedEffect(qrActive, qishuiLogin, qishuiRefresh) {
+        if (!qrActive || !qishuiLogin) return@LaunchedEffect
+        qishuiImage = null
+        qishuiHint = t("正在获取二维码")
+        val next = runCatching { app.qishuiCatalog.startQr() }.getOrElse {
+            qishuiHint = it.message ?: t("二维码请求失败")
+            return@LaunchedEffect
+        }
+        qishuiImage = PlayerDisplayQr.encodeBitmap(next.scanUrl, 720).asImageBitmap()
+        qishuiHint = t("请用汽水音乐扫码")
+        val deadline = System.currentTimeMillis() + 120_000
+        var waitMs = 3_000L
+        while (System.currentTimeMillis() < deadline) {
+            delay(waitMs)
+            val poll = runCatching { app.qishuiCatalog.pollQr(next) }.getOrNull() ?: continue
+            val cookie = poll.sessionCookie
+            if (!cookie.isNullOrBlank()) {
+                app.qishuiSessionStore.persist(cookie, t("汽水音乐"))
+                onLoggedIn()
+                return@LaunchedEffect
+            }
+            val status = poll.status
+            when {
+                status.equals("scanned", ignoreCase = true) || status == "2" -> {
+                    qishuiHint = t("已扫码，请在汽水音乐中确认")
+                    waitMs = 3_000L
+                }
+                status.contains("expire", ignoreCase = true) ||
+                    status.equals("refused", ignoreCase = true) ||
+                    status == "4" || status == "5" -> break
+                poll.errorCode == 7 -> {
+                    qishuiHint = poll.description.ifBlank { t("访问太频繁，请稍后再试") }
+                    waitMs = 8_000L
+                }
+                poll.errorCode != 0 -> {
+                    qishuiHint = poll.description.ifBlank { t("二维码请求失败") }
+                    if (poll.errorCode == 1049) return@LaunchedEffect
+                    waitMs = 3_000L
+                }
+                else -> waitMs = 3_000L
+            }
+        }
+        qishuiImage = null
+        qishuiHint = t("二维码已失效")
     }
 }
 

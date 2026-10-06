@@ -145,6 +145,7 @@ private enum class SettingsPreviewKey {
     UiScale,
     VinylSize,
     VinylOffsetY,
+    DynamicCoverOffsetX,
     TransportOffsetY,
     LyricBackgroundTransparency,
     PreviewLyric,
@@ -1228,11 +1229,26 @@ fun NowPlayingSettingsSheet(
                     SettingsCategory(title = t("黑胶"), titleAlpha = dim) {
                         SettingsAlpha(dim) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val outerOn = prefs.vinylOuterEnabled
+                                SettingsSwitchRow(
+                                    title = t("黑胶外层"),
+                                    subtitle = t("显示封面周围的黑胶盘面"),
+                                    checked = outerOn,
+                                    colors = switchColors,
+                                    onCheckedChange = {
+                                        onPrefsChange(prefs.copy(vinylOuterEnabled = it))
+                                    },
+                                )
                                 SettingsSwitchRow(
                                     title = t("完整封面"),
-                                    subtitle = t("封面铺满中心，隐藏轴心镂空"),
+                                    subtitle = if (outerOn) {
+                                        t("封面铺满中心，隐藏轴心镂空")
+                                    } else {
+                                        t("先开启黑胶外层")
+                                    },
                                     checked = prefs.vinylFullCover,
                                     colors = switchColors,
+                                    enabled = outerOn,
                                     onCheckedChange = {
                                         onPrefsChange(prefs.copy(vinylFullCover = it))
                                     },
@@ -1638,11 +1654,26 @@ fun NowPlayingSettingsSheet(
                                     onPrefsChange(prefs.copy(vinylAbsoluteCenter = it))
                                 },
                             )
+                            val outerOn = prefs.vinylOuterEnabled
+                            SettingsSwitchRow(
+                                title = t("黑胶外层"),
+                                subtitle = t("显示封面周围的黑胶盘面"),
+                                checked = outerOn,
+                                colors = switchColors,
+                                onCheckedChange = {
+                                    onPrefsChange(prefs.copy(vinylOuterEnabled = it))
+                                },
+                            )
                             SettingsSwitchRow(
                                 title = t("完整封面"),
-                                subtitle = t("封面铺满中心，隐藏轴心镂空"),
+                                subtitle = if (outerOn) {
+                                    t("封面铺满中心，隐藏轴心镂空")
+                                } else {
+                                    t("先开启黑胶外层")
+                                },
                                 checked = prefs.vinylFullCover,
                                 colors = switchColors,
+                                enabled = outerOn,
                                 onCheckedChange = {
                                     onPrefsChange(prefs.copy(vinylFullCover = it))
                                 },
@@ -1671,6 +1702,7 @@ fun NowPlayingSettingsSheet(
                                 value = prefs.vinylOuterScale,
                                 valueRange = PlayerDisplayPrefs.VINYL_OUTER_SCALE_MIN..
                                     PlayerDisplayPrefs.VINYL_OUTER_SCALE_MAX,
+                                enabled = outerOn,
                                 onValueChange = { onPrefsChange(prefs.copy(vinylOuterScale = it)) },
                             )
                             SettingsSliderRow(
@@ -1682,13 +1714,14 @@ fun NowPlayingSettingsSheet(
                                 value = prefs.vinylCenterRadiusFrac,
                                 valueRange = PlayerDisplayPrefs.VINYL_CENTER_RADIUS_MIN..
                                     PlayerDisplayPrefs.VINYL_CENTER_RADIUS_MAX,
-                                enabled = !prefs.vinylFullCover,
+                                enabled = outerOn && !prefs.vinylFullCover,
                                 onValueChange = {
                                     onPrefsChange(prefs.copy(vinylCenterRadiusFrac = it))
                                 },
                             )
                             SettingsVinylColorRow(
                                 prefs = prefs,
+                                enabled = outerOn,
                                 onPrefsChange = onPrefsChange,
                                 onOpenCustomEditor = onOpenVinylColorEditor,
                             )
@@ -1722,7 +1755,25 @@ fun NowPlayingSettingsSheet(
                         }
                     }
                 }
-                } // 专注页设置；动态页此项为空且不生效
+                } else {
+                    SettingsCategory(title = t("布局"), titleAlpha = dim) {
+                        SettingsAlpha(rowAlpha(SettingsPreviewKey.DynamicCoverOffsetX)) {
+                            SettingsSliderRow(
+                                title = t("封面信息水平位置"),
+                                valueLabel = String.format("%+.0f", prefs.dynamicCoverOffsetXDp),
+                                value = prefs.dynamicCoverOffsetXDp,
+                                valueRange = PlayerDisplayPrefs.DYNAMIC_COVER_OFFSET_X_MIN..
+                                    PlayerDisplayPrefs.DYNAMIC_COVER_OFFSET_X_MAX,
+                                onValueChange = {
+                                    onPrefsChange(prefs.copy(dynamicCoverOffsetXDp = it))
+                                },
+                                onPreviewDragActiveChange = {
+                                    onPreviewDrag(SettingsPreviewKey.DynamicCoverOffsetX, it)
+                                },
+                            )
+                        }
+                    }
+                }
             }
             } // if (portraitContent) else landscape
         }
@@ -1740,6 +1791,7 @@ private fun SettingsVinylColorRow(
     prefs: PlayerDisplayPrefs,
     onPrefsChange: (PlayerDisplayPrefs) -> Unit,
     onOpenCustomEditor: () -> Unit,
+    enabled: Boolean = true,
 ) {
     val chrome = LocalSettingsChrome.current
     val styles = VinylColorStyle.entries
@@ -1747,13 +1799,17 @@ private fun SettingsVinylColorRow(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val selected = prefs.vinylColorStyle
+    val enT by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.40f,
+        animationSpec = tween(280, easing = FastOutSlowInEasing),
+        label = "vinylColorEn",
+    )
     val indicator = remember { Animatable(selected.ordinal.toFloat()) }
     var dragOffsetPx by remember { mutableFloatStateOf(0f) }
 
     fun selectStyle(style: VinylColorStyle) {
-        if (style != selected) {
-            onPrefsChange(prefs.copy(vinylColorStyle = style))
-        }
+        if (!enabled || style == selected) return
+        onPrefsChange(prefs.copy(vinylColorStyle = style))
     }
 
     LaunchedEffect(selected) {
@@ -1766,6 +1822,7 @@ private fun SettingsVinylColorRow(
     Column(
         Modifier
             .fillMaxWidth()
+            .graphicsLayer { alpha = enT }
             .clip(RowShape)
             .background(chrome.rowBg)
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1786,7 +1843,11 @@ private fun SettingsVinylColorRow(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = t("滑动切换预设 · 自选时点色环编辑"),
+                    text = if (enabled) {
+                        t("滑动切换预设 · 自选时点色环编辑")
+                    } else {
+                        t("先开启黑胶外层")
+                    },
                     style = TextStyle(
                         color = chrome.hint,
                         fontFamily = FontFamily.SansSerif,
@@ -1815,7 +1876,7 @@ private fun SettingsVinylColorRow(
                     .background(previewBase)
                     .border(1.5.dp, previewGroove.copy(alpha = 0.85f), CircleShape)
                     .then(
-                        if (customActive) {
+                        if (enabled && customActive) {
                             Modifier.clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
@@ -1843,7 +1904,8 @@ private fun SettingsVinylColorRow(
                 .height(36.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(MainPalette.TrackOff)
-                .pointerInput(styles.size) {
+                .pointerInput(styles.size, enabled) {
+                    if (!enabled) return@pointerInput
                     val segW = size.width / styles.size.toFloat()
                     detectHorizontalDragGestures(
                         onDragStart = {

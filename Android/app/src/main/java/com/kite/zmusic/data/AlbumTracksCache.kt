@@ -17,6 +17,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class AlbumTracksCache(
     context: Context,
+    private val platformStore: com.kite.zmusic.data.platform.MusicPlatformStore,
+    private val openCatalog: com.kite.zmusic.data.platform.OpenMusicCatalog,
 ) {
     data class Entry(
         val albumId: Long,
@@ -42,6 +44,32 @@ class AlbumTracksCache(
     private val dir = File(appContext.filesDir, "zmusic_album_cache").apply { mkdirs() }
     private val memory = ConcurrentHashMap<Long, Entry>()
     private val ioMutex = Mutex()
+
+    suspend fun loadOpen(albumId: Long, fallbackTitle: String): Entry? {
+        val platform = platformStore.current
+        if (platform != com.kite.zmusic.data.platform.MusicPlatform.KUWO &&
+            platform != com.kite.zmusic.data.platform.MusicPlatform.KUGOU
+        ) {
+            return null
+        }
+        val album = openCatalog.album(platform, albumId) ?: return null
+        if (album.songs.isEmpty()) return null
+        return Entry(
+            albumId = album.id,
+            title = album.name.ifBlank { fallbackTitle },
+            tracks = album.songs,
+            coverUrl = album.coverUrl,
+            artist = album.artist,
+            artistId = album.artistId,
+            publishTime = album.publishTime,
+            company = album.company,
+            description = album.description,
+            type = album.type,
+            alias = album.alias,
+            size = album.size.takeIf { it > 0 } ?: album.songs.size,
+            updatedAtMs = System.currentTimeMillis(),
+        ).also { memory[albumId] = it }
+    }
 
     fun peek(albumId: Long): Entry? {
         if (albumId <= 0L) return null

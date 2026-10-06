@@ -96,7 +96,7 @@ internal fun PlayerExpandFlightLayer(
         flightVinylDest(expand, miniCover)
     }
     val styleT = (p / PlayerExpandHandoff).coerceIn(0f, 1f)
-    val destCoverT = if (look.vinylFullCover) 1f else 0f
+    val destCoverT = if (look.vinylFullCover || !look.vinylOuterEnabled) 1f else 0f
     val coverT = lerp(0f, destCoverT, styleT)
     val destHole = (look.vinylCenterRadiusFrac / VinylCoverFrac).coerceIn(0.08f, 0.95f) *
         (1f - destCoverT)
@@ -196,24 +196,26 @@ internal fun PlayerExpandFlightLayer(
                         }
                     }
                 } else {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            transformOrigin = TransformOrigin(0.5f, 0.5f)
-                            scaleX = outer
-                            scaleY = outer
-                            clip = false
-                            shadowElevation = 0f
-                        }
-                        .clip(VinylCircleShape),
-                ) {
-                    VinylDiscPlate(
-                        Modifier.fillMaxSize(),
-                        spindleHoleFrac = spindle,
-                        colors = look.plateColors,
-                        drawRim = true,
-                    )
+                if (look.vinylOuterEnabled) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                transformOrigin = TransformOrigin(0.5f, 0.5f)
+                                scaleX = outer
+                                scaleY = outer
+                                clip = false
+                                shadowElevation = 0f
+                            }
+                            .clip(VinylCircleShape),
+                    ) {
+                        VinylDiscPlate(
+                            Modifier.fillMaxSize(),
+                            spindleHoleFrac = spindle,
+                            colors = look.plateColors,
+                            drawRim = true,
+                        )
+                    }
                 }
                 val coverCorner = lerp(corner0, minOf(srcW, srcH) / 2f, styleT)
                 Box(

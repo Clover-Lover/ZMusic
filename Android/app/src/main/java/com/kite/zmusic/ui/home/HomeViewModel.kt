@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kite.zmusic.data.HomeBanner
 import com.kite.zmusic.data.HomeFeedRepository
+import com.kite.zmusic.data.platform.HomeBlock
 import com.kite.zmusic.data.RecommendMvCard
 import com.kite.zmusic.data.RecommendPlaylistCard
 import com.kite.zmusic.data.TrackRow
@@ -24,6 +25,7 @@ data class HomeUiState(
     val dailyPlaylists: List<RecommendPlaylistCard> = emptyList(),
     val newSongs: List<TrackRow> = emptyList(),
     val mvs: List<RecommendMvCard> = emptyList(),
+    val unavailable: Set<HomeBlock> = emptySet(),
 )
 
 class HomeViewModel(
@@ -41,6 +43,7 @@ class HomeViewModel(
             dailyPlaylists = feed.dailyPlaylists,
             newSongs = feed.newSongs,
             mvs = feed.mvs,
+            unavailable = feed.unavailable,
         )
     }.stateIn(
         viewModelScope,
@@ -55,6 +58,7 @@ class HomeViewModel(
             dailyPlaylists = homeFeed.peek().dailyPlaylists,
             newSongs = homeFeed.peek().newSongs,
             mvs = homeFeed.peek().mvs,
+            unavailable = homeFeed.peek().unavailable,
         ),
     )
 

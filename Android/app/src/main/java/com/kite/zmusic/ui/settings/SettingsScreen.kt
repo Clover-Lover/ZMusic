@@ -79,6 +79,8 @@ import com.kite.zmusic.data.ChromeGlassStyle
 import com.kite.zmusic.data.MiniQuickSkipAxis
 import com.kite.zmusic.data.ServerConfigRepository
 import com.kite.zmusic.data.UApiProStore
+import com.kite.zmusic.data.platform.MusicPlatform
+import com.kite.zmusic.data.platform.MusicPlatformStore
 import com.kite.zmusic.i18n.I18n
 import com.kite.zmusic.i18n.t
 import com.kite.zmusic.plugin.PluginEngineVersion
@@ -138,6 +140,9 @@ fun SettingsScreen(
     val uapiProStore = remember {
         (context.applicationContext as ZMusicApplication).uapiProStore
     }
+    val betterNcmMarketStore = remember {
+        (context.applicationContext as ZMusicApplication).betterNcmMarketStore
+    }
     var endpointLabel by remember {
         mutableStateOf(maskEndpoint(serverConfig.currentEndpoint()))
     }
@@ -147,11 +152,27 @@ fun SettingsScreen(
     var uapiProSubtitle by remember {
         mutableStateOf(uapiProRowSubtitle(uapiProStore.current()))
     }
+    var betterNcmSubtitle by remember {
+        mutableStateOf(betterNcmRowSubtitle(betterNcmMarketStore.current()))
+    }
     var editServer by remember { mutableStateOf(false) }
     var editCommunity by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
+    var pendingPlatform by remember { mutableStateOf<MusicPlatform?>(null) }
+    val platformStore = remember {
+        (context.applicationContext as ZMusicApplication).musicPlatformStore
+    }
+    val customPlaySourceStore = remember {
+        (context.applicationContext as ZMusicApplication).customPlaySourceStore
+    }
+    val platform by platformStore.currentFlow.collectAsStateWithLifecycle()
+    var customSourceUrl by remember {
+        mutableStateOf(customPlaySourceStore.url())
+    }
     val uapiProVisible = remember { MutableTransitionState(false) }
     var uapiProSaveToken by remember { mutableIntStateOf(0) }
+    val betterNcmVisible = remember { MutableTransitionState(false) }
+    var betterNcmSaveToken by remember { mutableIntStateOf(0) }
     val aboutVisible = remember { MutableTransitionState(false) }
     val changelogVisible = remember { MutableTransitionState(false) }
     val sponsorVisible = remember { MutableTransitionState(false) }
@@ -161,6 +182,7 @@ fun SettingsScreen(
     val unlockGrayDisclaimerVisible = remember { MutableTransitionState(false) }
     var unlockGrayConfirmVisible by remember { mutableStateOf(false) }
     val qualityVisible = remember { MutableTransitionState(false) }
+    val platformVisible = remember { MutableTransitionState(false) }
     val persistentPlaybackVisible = remember { MutableTransitionState(false) }
     val cacheVisible = remember { MutableTransitionState(false) }
     val realtimeCacheVisible = remember { MutableTransitionState(false) }
@@ -303,6 +325,20 @@ fun SettingsScreen(
             ) {
                 Spacer(Modifier.height(8.dp))
                 SettingsGroup(
+                    title = t("扩展"),
+                    reveal = reveal.value,
+                    delay = 0f,
+                ) {
+                    SettingsRow(
+                        title = t("客户端平台"),
+                        subtitle = platformLabel(platform),
+                        icon = ZIcons.Extension,
+                        tint = Color(0xFF2F6FED),
+                        onClick = { platformVisible.targetState = true },
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                SettingsGroup(
                     title = t("连接"),
                     reveal = reveal.value,
                     delay = 0f,
@@ -349,6 +385,23 @@ fun SettingsScreen(
                         onClick = {
                             uapiProSaveToken = 0
                             uapiProVisible.targetState = true
+                        },
+                    )
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 62.dp)
+                            .height(0.5.dp)
+                            .background(MainPalette.Hairline),
+                    )
+                    SettingsRow(
+                        title = t("BetterNCM"),
+                        subtitle = betterNcmSubtitle,
+                        icon = ZIcons.Workshop,
+                        tint = Color(0xFF7C5CBF),
+                        onClick = {
+                            betterNcmSaveToken = 0
+                            betterNcmVisible.targetState = true
                         },
                     )
                 }
@@ -758,6 +811,55 @@ fun SettingsScreen(
             )
         }
         SettingsDrillHost(
+            visibleState = betterNcmVisible,
+            landscape = landscape,
+            title = t("BetterNCM"),
+            onBack = { betterNcmVisible.targetState = false },
+            actionLabel = t("保存"),
+            onAction = { betterNcmSaveToken += 1 },
+        ) {
+            BetterNcmMarketSettingsPage(
+                store = betterNcmMarketStore,
+                contentBottomInset = contentBottomInset,
+                saveToken = betterNcmSaveToken,
+                onSaved = {
+                    betterNcmSubtitle = betterNcmRowSubtitle(betterNcmMarketStore.current())
+                    betterNcmVisible.targetState = false
+                    context.showIslandNotice(t("BetterNCM 已更新"))
+                },
+                onError = { msg ->
+                    context.showIslandNotice(msg)
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        SettingsDrillHost(
+            visibleState = platformVisible,
+            landscape = landscape,
+            title = t("客户端平台"),
+            onBack = { platformVisible.targetState = false },
+        ) {
+            ClientPlatformSettingsPage(
+                selected = platform,
+                sourceUrl = customSourceUrl,
+                onSelect = { item ->
+                    if (item == platform) return@ClientPlatformSettingsPage
+                    if (item.reloginOnSwitch) {
+                        pendingPlatform = item
+                    } else {
+                        platformStore.set(item)
+                        context.showIslandNotice(t("已切换到%s", platformLabel(item)))
+                    }
+                },
+                onSourceUrl = { next ->
+                    customSourceUrl = next
+                    customPlaySourceStore.set(next)
+                },
+                contentBottomInset = contentBottomInset,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        SettingsDrillHost(
             visibleState = qualityVisible,
             landscape = landscape,
             title = t("音源默认质量"),
@@ -909,8 +1011,8 @@ fun SettingsScreen(
                 style = glassDraft,
                 applied = glassStyle,
                 onMode = { glassDraft = glassDraft.copy(mode = it) },
-                onRefraction = { glassDraft = glassDraft.copy(refraction = it) },
-                onBlur = { glassDraft = glassDraft.copy(blur = it) },
+                onRefraction = { glassDraft = glassDraft.withRefraction(it) },
+                onBlur = { glassDraft = glassDraft.withBlur(it) },
                 onReset = { glassDraft = ChromeGlassStyle.Default },
                 onApply = { applyGlass() },
                 contentBottomInset = contentBottomInset,
@@ -1332,6 +1434,20 @@ fun SettingsScreen(
                     )
                 }
             },
+        )
+    }
+    pendingPlatform?.let { next ->
+        GlassAlertDialog(
+            title = t("切换客户端平台"),
+            message = t("应用后将自动重启 ZMusic，以便重新登录%s。", platformLabel(next)),
+            confirmLabel = t("重启并切换"),
+            onConfirm = {
+                val target = next
+                platformStore.setBlocking(target)
+                pendingPlatform = null
+                MusicPlatformStore.restart(context)
+            },
+            onDismiss = { pendingPlatform = null },
         )
     }
     if (confirmLogout) {
@@ -1853,6 +1969,11 @@ private fun SettingsRow(
 
 private fun maskEndpoint(endpoint: ServerConfigRepository.Endpoint): String =
     ServerConfigRepository.maskEndpoint(endpoint)
+
+private fun betterNcmRowSubtitle(baseUrl: String): String {
+    val host = runCatching { Uri.parse(baseUrl).host }.getOrNull()?.trim().orEmpty()
+    return if (host.isEmpty()) t("未配置") else ServerConfigRepository.maskHost(host)
+}
 
 private fun uapiProRowSubtitle(credentials: UApiProStore.Credentials): String {
     val key = credentials.apiKey.trim()

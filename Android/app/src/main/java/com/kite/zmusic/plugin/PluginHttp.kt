@@ -1,6 +1,7 @@
 package com.kite.zmusic.plugin
 
 import java.io.IOException
+import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -147,6 +148,26 @@ internal class PluginHttpClient(private val base: OkHttpClient) {
         return true
     }
 
+    /** 插件线程上的同步请求。正文最多 1MB，同时给出文本和 base64。 */
+    fun execute(req: PluginHttpRequest): Map<String, Any?> {
+        val httpUrl = req.url.toHttpUrlOrNull()
+            ?: return PluginHttpParams.result(false, null, "network", null)
+        val client = base.newBuilder()
+            .callTimeout(req.timeoutMs, TimeUnit.MILLISECONDS)
+            .connectTimeout(req.timeoutMs, TimeUnit.MILLISECONDS)
+            .readTimeout(req.timeoutMs, TimeUnit.MILLISECONDS)
+            .writeTimeout(req.timeoutMs, TimeUnit.MILLISECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+        val request = buildRequest(req, httpUrl) ?: return PluginHttpParams.result(false, null, "network", null)
+        return try {
+            client.newCall(request).execute().use { responseBytes(it) }
+        } catch (e: IOException) {
+            failure(e, false)
+        }
+    }
+
     fun cancel(pluginId: String) {
         val list = inflight.remove(pluginId) ?: return
         list.forEach { pending ->
@@ -158,6 +179,67 @@ internal class PluginHttpClient(private val base: OkHttpClient) {
     private fun finish(pluginId: String, pending: Pending, result: Map<String, Any?>) {
         inflight[pluginId]?.remove(pending)
         pending.complete(result)
+    }
+
+    private fun buildRequest(req: PluginHttpRequest, httpUrl: okhttp3.HttpUrl): Request? {
+        val builder = Request.Builder().url(httpUrl)
+        req.headers.forEach { (k, v) ->
+            if (k.equals("Host", ignoreCase = true) || k.equals("Content-Length", ignoreCase = true)) {
+                return@forEach
+            }
+            runCatching { builder.header(k, v) }
+        }
+        val body = if (req.body != null) {
+            val type = req.headers.entries
+                .firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }
+                ?.value
+                ?.toMediaTypeOrNull()
+            req.body.toRequestBody(type)
+        } else if (req.method != "GET" && req.method != "HEAD") {
+            ByteArray(0).toRequestBody(null)
+        } else {
+            null
+        }
+        return try {
+            builder.method(req.method, body).build()
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+    }
+
+    private fun responseBytes(response: Response): Map<String, Any?> {
+        val finalUrl = response.request.url
+        if (finalUrl.scheme != "http" && finalUrl.scheme != "https") {
+            return PluginHttpParams.result(false, null, "network", null)
+        }
+        val headers = LinkedHashMap<String, String>()
+        for (name in response.headers.names()) {
+            headers[name] = response.headers.values(name).joinToString(",")
+        }
+        val source = response.body?.source()
+            ?: return PluginHttpParams.result(response.code in 200..299, response.code, null, "", headers)
+                .plus("b64" to "")
+        val cap = PluginHttpParams.MAX_BODY_BYTES.toLong()
+        val tooLarge = try {
+            source.request(cap + 1L)
+        } catch (_: IOException) {
+            return PluginHttpParams.result(false, response.code, "network", null, headers)
+        }
+        if (tooLarge) {
+            return PluginHttpParams.result(false, response.code, "too_large", null, headers)
+        }
+        val bytes = try {
+            source.readByteArray()
+        } catch (_: IOException) {
+            return PluginHttpParams.result(false, response.code, "network", null, headers)
+        }
+        return PluginHttpParams.result(
+            ok = response.code in 200..299,
+            status = response.code,
+            error = null,
+            text = bytes.toString(Charsets.UTF_8),
+            headers = headers,
+        ).plus("b64" to Base64.getEncoder().encodeToString(bytes))
     }
 
     private fun failure(e: IOException, cancelled: Boolean): Map<String, Any?> {

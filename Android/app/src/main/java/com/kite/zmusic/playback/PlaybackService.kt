@@ -73,6 +73,9 @@ class PlaybackService : MediaSessionService() {
             persistentPlaybackStore = app.persistentPlaybackStore,
             privacyStore = app.privacyStore,
             userClient = app.ncmUserClient,
+            platformStore = app.musicPlatformStore,
+            qishui = app.qishuiCatalog,
+            customPlaySource = app.customPlaySourceClient,
             audioOutputController = app.audioOutputController,
             fmModeStore = app.personalFmModeStore,
             onClearAndStopService = {

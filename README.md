@@ -79,6 +79,7 @@ community.server.host=127.0.0.1
 community.server.port=80
 uapipro.base.url=https://uapis.cn/api/v1
 uapipro.api.key=your-uapipro-api-key
+betterncm.market.base.url=https://gitcode.net/qq_21551787/bncm-plugin-packed/-/raw/master/
 ```
 
 ```powershell
@@ -94,6 +95,7 @@ export ZMUSIC_COMMUNITY_SERVER=127.0.0.1:80
 
 未配置时客户端不含可用的默认公网地址，需在 App 内自行填写服务器。
 UApiPro（翻译等增强能力）同样通过 `uapipro.*` 注入，也可在设置 → 连接 → UApiPro 运行时修改。
+BetterNCM 插件市场根地址通过 `betterncm.market.base.url` 注入，也可在设置 → 连接 → BetterNCM 运行时修改。
 ## 🗂️ 仓库结构
 
 ```

@@ -122,6 +122,7 @@ fun VinylSongPickOverlay(
     fullCover: Boolean,
     centerRadiusFrac: Float,
     outerScale: Float,
+    showOuterPlate: Boolean = true,
     hazeState: HazeState,
     /** 顶栏歌名：与横屏标题信息同一套标题样式 */
     titleNameStyle: TitleLineStyle = TitleLineStyle.NameDefault,
@@ -155,6 +156,7 @@ fun VinylSongPickOverlay(
             fullCover = fullCover,
             centerRadiusFrac = centerRadiusFrac,
             outerScale = outerScale,
+            showOuterPlate = showOuterPlate,
             hazeState = hazeState,
             titleNameStyle = titleNameStyle,
             uiScale = uiScale,
@@ -185,6 +187,7 @@ private fun VinylSongPickOverlaySession(
     fullCover: Boolean,
     centerRadiusFrac: Float,
     outerScale: Float,
+    showOuterPlate: Boolean,
     hazeState: HazeState,
     titleNameStyle: TitleLineStyle,
     uiScale: Float,
@@ -480,6 +483,7 @@ private fun VinylSongPickOverlaySession(
                     fullCover = fullCover,
                     centerRadiusFrac = centerRadiusFrac,
                     outerScale = outerScale,
+                    showOuterPlate = showOuterPlate,
                 )
             }
 
@@ -496,6 +500,7 @@ private fun VinylSongPickOverlaySession(
                         fullCover = fullCover,
                         centerRadiusFrac = centerRadiusFrac,
                         outerScale = outerScale,
+                        showOuterPlate = showOuterPlate,
                         contentAlpha = browseContentAlpha.coerceAtLeast(
                             if (phase == VinylSongPickPhase.FanOut) 0.001f else 0f,
                         ),
@@ -545,6 +550,7 @@ private fun VinylSongPickOverlaySession(
                             fullCover = fullCover,
                             centerRadiusFrac = centerRadiusFrac,
                             outerScale = outerScale,
+                            showOuterPlate = showOuterPlate,
                             modifier = handoffMod,
                         )
                     }
@@ -565,6 +571,7 @@ private fun VinylSongPickOverlaySession(
                                 fullCover = fullCover,
                                 centerRadiusFrac = centerRadiusFrac,
                                 outerScale = outerScale,
+                                showOuterPlate = showOuterPlate,
                                 modifier = handoffMod
                                     .zIndex(21f)
                                     .graphicsLayer { alpha = 1f - morph },
@@ -579,6 +586,7 @@ private fun VinylSongPickOverlaySession(
                                 fullCover = fullCover,
                                 centerRadiusFrac = centerRadiusFrac,
                                 outerScale = outerScale,
+                                showOuterPlate = showOuterPlate,
                                 modifier = handoffMod.graphicsLayer { alpha = morph },
                             )
                         }
@@ -591,6 +599,7 @@ private fun VinylSongPickOverlaySession(
                             fullCover = fullCover,
                             centerRadiusFrac = centerRadiusFrac,
                             outerScale = outerScale,
+                            showOuterPlate = showOuterPlate,
                             modifier = handoffMod,
                         )
                     }
@@ -685,6 +694,7 @@ private fun VinylSongPickStackAndFan(
     fullCover: Boolean,
     centerRadiusFrac: Float,
     outerScale: Float,
+    showOuterPlate: Boolean,
 ) {
     val density = LocalDensity.current
     val st = stackT.coerceIn(0f, 1f)
@@ -797,6 +807,7 @@ private fun VinylSongPickStackAndFan(
                     fullCover = fullCover,
                     centerRadiusFrac = centerRadiusFrac,
                     outerScale = outerScale,
+                    showOuterPlate = showOuterPlate,
                     modifier = Modifier
                         .offset(x = x, y = originY)
                         .size(discSize)
@@ -827,6 +838,7 @@ private fun VinylSongPickBrowseRow(
     fullCover: Boolean,
     centerRadiusFrac: Float,
     outerScale: Float,
+    showOuterPlate: Boolean,
     contentAlpha: Float,
     exitProgress: Float,
     keepFocusedOpaque: Boolean,
@@ -984,6 +996,7 @@ private fun VinylSongPickBrowseRow(
                         fullCover = fullCover,
                         centerRadiusFrac = centerRadiusFrac,
                         outerScale = outerScale,
+                        showOuterPlate = showOuterPlate,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -1001,9 +1014,10 @@ private fun PickVinylDisc(
     fullCover: Boolean,
     centerRadiusFrac: Float,
     outerScale: Float,
+    showOuterPlate: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    if (lite || !showCover) {
+    if ((lite || !showCover) && showOuterPlate) {
         Box(
             modifier.clip(CircleShape),
             contentAlignment = Alignment.Center,
@@ -1030,6 +1044,7 @@ private fun PickVinylDisc(
             fullCover = fullCover,
             centerRadiusFrac = centerRadiusFrac,
             outerScale = outerScale,
+            showOuterPlate = showOuterPlate,
             plateColors = plateColors,
             animateStyleChanges = false,
             modifier = modifier,

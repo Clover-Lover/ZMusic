@@ -421,8 +421,14 @@ data class PlayerDisplayPrefs(
     val vinylSizeScale: Float = 1f,
     /**
      * 外圈黑胶倍率：只放大/缩小黑圈纹路面，封面绝对尺寸不变（仍只随 [vinylSizeScale]）。
+     * 黑胶外层关闭时忽略。
      */
     val vinylOuterScale: Float = 1f,
+    /**
+     * 黑胶外层：封面周围的纹路盘面。
+     * 关闭后只保留圆形封面，外圈半径、中心半径、颜色与完整封面不可用。
+     */
+    val vinylOuterEnabled: Boolean = true,
     /**
      * 中心黑胶半径：相对「整体大小 = 100%」时的基准盘比例；
      * 与 [vinylOuterScale] 解耦。完整封面开启时忽略。
@@ -582,6 +588,11 @@ data class PlayerDisplayPrefs(
      * 横屏播放页类型。竖屏偏好文件也会写入该键，但不参与竖屏布局。
      */
     val landscapePageType: LandscapePlayerPageType = LandscapePlayerPageType.Focus,
+    /**
+     * 横屏动态页：方封、歌名、歌手、专辑整列的水平偏移（dp），负左正右。
+     * 专注页黑胶位移不共用这一项。
+     */
+    val dynamicCoverOffsetXDp: Float = 0f,
 ) {
     fun activeCustomPreset(): VinylCustomPreset =
         vinylCustomPresets.getOrElse(vinylCustomPresetIndex.coerceIn(0, VINYL_CUSTOM_PRESET_COUNT - 1)) {
@@ -699,6 +710,11 @@ data class PlayerDisplayPrefs(
             titleOffsetYDp = titleOffsetYDp.finiteCoerceIn(
                 TITLE_OFFSET_Y_MIN,
                 TITLE_OFFSET_Y_MAX,
+                0f,
+            ),
+            dynamicCoverOffsetXDp = dynamicCoverOffsetXDp.finiteCoerceIn(
+                DYNAMIC_COVER_OFFSET_X_MIN,
+                DYNAMIC_COVER_OFFSET_X_MAX,
                 0f,
             ),
             transportBottomInsetDp = transportBottomInsetDp.finiteCoerceIn(
@@ -846,6 +862,9 @@ data class PlayerDisplayPrefs(
         const val VINYL_OFFSET_Y_MAX = 84f
         const val LYRIC_OFFSET_MIN = -72f
         const val LYRIC_OFFSET_MAX = 72f
+        /** 动态页封面信息列水平偏移 */
+        const val DYNAMIC_COVER_OFFSET_X_MIN = -120f
+        const val DYNAMIC_COVER_OFFSET_X_MAX = 200f
         /** 标题信息垂直偏移 */
         const val TITLE_OFFSET_Y_MIN = -40f
         const val TITLE_OFFSET_Y_MAX = 72f
@@ -1048,6 +1067,7 @@ class PlayerDisplayPrefsStore(
                 prefs.safeFloat(KEY_VINYL_RADIUS_SCALE_LEGACY, 1f),
             ),
             vinylOuterScale = prefs.safeFloat(KEY_VINYL_OUTER_SCALE, 1f),
+            vinylOuterEnabled = prefs.safeBoolean(KEY_VINYL_OUTER_ENABLED, true),
             vinylCenterRadiusFrac = prefs.safeFloat(KEY_VINYL_CENTER_RADIUS, 0.20f),
             vinylColorStyle = VinylColorStyle.fromOrdinal(prefs.safeInt(KEY_VINYL_COLOR, 0)),
             vinylCustomBaseArgb = active.baseArgb,
@@ -1199,6 +1219,7 @@ class PlayerDisplayPrefsStore(
                     LandscapePlayerPageType.Focus.ordinal,
                 ),
             ),
+            dynamicCoverOffsetXDp = prefs.safeFloat(KEY_DYNAMIC_COVER_OFFSET_X, 0f),
         )
     }
 
@@ -1221,6 +1242,7 @@ class PlayerDisplayPrefsStore(
                 .putBoolean(KEY_VINYL_FULL_COVER, v.vinylFullCover)
                 .putFloat(KEY_VINYL_SIZE_SCALE, v.vinylSizeScale)
                 .putFloat(KEY_VINYL_OUTER_SCALE, v.vinylOuterScale)
+                .putBoolean(KEY_VINYL_OUTER_ENABLED, v.vinylOuterEnabled)
                 .putFloat(KEY_VINYL_CENTER_RADIUS, v.vinylCenterRadiusFrac)
                 .putInt(KEY_VINYL_COLOR, v.vinylColorStyle.ordinal)
                 .putInt(KEY_VINYL_CUSTOM_BASE, v.vinylCustomBaseArgb)
@@ -1305,6 +1327,7 @@ class PlayerDisplayPrefsStore(
                 .putFloat(KEY_DANMAKU_SPEED, v.danmakuSpeed)
                 .putFloat(KEY_DANMAKU_SCALE, v.danmakuScale)
                 .putInt(KEY_LANDSCAPE_PAGE_TYPE, v.landscapePageType.ordinal)
+                .putFloat(KEY_DYNAMIC_COVER_OFFSET_X, v.dynamicCoverOffsetXDp)
                 .apply()
         }
     }
@@ -1349,6 +1372,7 @@ class PlayerDisplayPrefsStore(
         /** 旧键：迁移为 [KEY_VINYL_SIZE_SCALE] */
         private const val KEY_VINYL_RADIUS_SCALE_LEGACY = "vinyl_radius_scale"
         private const val KEY_VINYL_OUTER_SCALE = "vinyl_outer_scale"
+        private const val KEY_VINYL_OUTER_ENABLED = "vinyl_outer_enabled"
         private const val KEY_VINYL_CENTER_RADIUS = "vinyl_center_radius_frac"
         private const val KEY_VINYL_COLOR = "vinyl_color_style"
         private const val KEY_VINYL_CUSTOM_BASE = "vinyl_custom_base_argb"
@@ -1417,6 +1441,7 @@ class PlayerDisplayPrefsStore(
         private const val KEY_DANMAKU_SPEED = "danmaku_speed"
         private const val KEY_DANMAKU_SCALE = "danmaku_scale"
         private const val KEY_LANDSCAPE_PAGE_TYPE = "landscape_page_type"
+        private const val KEY_DYNAMIC_COVER_OFFSET_X = "dynamic_cover_offset_x_dp"
     }
 }
 

@@ -248,9 +248,9 @@ fun LiquidGlassStylePage(
 private fun GlassHintCopy(reveal: Float, compact: Boolean = false) {
     Text(
         text = if (compact) {
-            t("拖预览条看折射；磨砂只模糊；纯色不透底。")
+            t("拖预览条看折射；磨砂只模糊；纯色不透底。参数按模式分开记。")
         } else {
-            t("拖一拖预览条，看它怎么盖在画面上。液态会折射；磨砂只做普通模糊；纯色不再透出背景。")
+            t("拖一拖预览条，看它怎么盖在画面上。液态会折射；磨砂只做普通模糊；纯色不再透出背景。三种模式各自记住模糊和折射率。")
         },
         style = TextStyle(
             color = MainPalette.Secondary,

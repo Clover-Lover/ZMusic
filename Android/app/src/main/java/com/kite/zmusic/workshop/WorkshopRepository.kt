@@ -21,10 +21,30 @@ class WorkshopRepository(
 
     fun session() = auth.current()
 
-    suspend fun listPlugins(page: Int, q: String = ""): WorkshopPage<WorkshopPluginCard> =
-        client.listPlugins(page = page, q = q)
+    suspend fun listPlugins(
+        page: Int,
+        q: String = "",
+        category: String = "",
+        perPage: Int = 20,
+        refresh: Boolean = false,
+    ): WorkshopPage<WorkshopPluginCard> {
+        if (category.equals(WorkshopCategories.BETTERNCM, ignoreCase = true)) {
+            return client.listBetterNcm(page, perPage = perPage, q = q, refresh = refresh)
+        }
+        return client.listPlugins(page = page, perPage = perPage, q = q, category = category)
+    }
 
-    suspend fun detail(id: String): WorkshopPluginDetail = client.pluginDetail(id)
+    suspend fun detail(id: String): WorkshopPluginDetail {
+        if (!id.contains('.')) {
+            client.findBetterNcm(id)?.let { return it.toDetail() }
+        }
+        return client.pluginDetail(id)
+    }
+
+    suspend fun betterNcmReadme(id: String): String {
+        val remote = client.findBetterNcm(id) ?: return ""
+        return remote.toDetail(client.fetchRepoReadme(remote.repo)).readme
+    }
 
     suspend fun rate(id: String, stars: Int): WorkshopRatingResult =
         client.putRating(id, stars)
@@ -51,6 +71,35 @@ class WorkshopRepository(
      */
     suspend fun downloadAndInstall(detail: WorkshopPluginDetail): Result<PluginRecord> =
         withContext(Dispatchers.IO) {
+            if (WorkshopCategories.matches(detail.card, WorkshopCategories.BETTERNCM)) {
+                val url = detail.packageUrl.trim()
+                if (!url.startsWith("http://", ignoreCase = true) &&
+                    !url.startsWith("https://", ignoreCase = true)
+                ) {
+                    notices.show(t("没有可下载的插件包"))
+                    return@withContext Result.failure(IllegalStateException("betterncm url"))
+                }
+                val dest = File(cacheDir, "bncm-${detail.card.id.take(48)}-${detail.card.version}.plugin")
+                var finishedOk = false
+                try {
+                    notices.setSticky(t("正在下载 %s… 0%%", detail.card.name))
+                    val file = downloader.downloadPlain(url, dest) { received, total ->
+                        val pct = if (total > 0) ((received * 100) / total).toInt().coerceIn(0, 100) else 0
+                        notices.setSticky(t("正在下载 %s… %s%%", detail.card.name, pct))
+                    }.getOrElse { err ->
+                        notices.clearSticky()
+                        notices.show(t("插件市场暂时打不开"))
+                        return@withContext Result.failure(err)
+                    }
+                    notices.setSticky(t("正在安装 %s…", detail.card.name))
+                    val installed = applyInstallResult(pluginEngine.installBetterNcm(file))
+                    finishedOk = installed.isSuccess
+                    return@withContext installed
+                } finally {
+                    dest.delete()
+                    if (!finishedOk) notices.clearSticky()
+                }
+            }
             val id = detail.card.id
             val dest = File(cacheDir, "workshop-${id.replace('.', '_')}-${detail.card.version}.zpp")
             var finishedOk = false
@@ -93,7 +142,13 @@ class WorkshopRepository(
         when (result) {
             is PluginRegisterResult.Installed -> {
                 notices.clearSticky()
-                notices.show(t("已安装「%s」，默认未启用", result.record.name))
+                notices.show(
+                    if (result.record.enabled) {
+                        t("已安装并启用「%s」", result.record.name)
+                    } else {
+                        t("已安装「%s」，默认未启用", result.record.name)
+                    },
+                )
                 Result.success(result.record)
             }
             is PluginRegisterResult.Replaced -> {

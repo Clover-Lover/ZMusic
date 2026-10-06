@@ -36,6 +36,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kite.zmusic.R
 import com.kite.zmusic.ZMusicApplication
 import com.kite.zmusic.data.SessionRepository
+import com.kite.zmusic.data.platform.MusicPlatform
 import com.kite.zmusic.playback.PlaybackViewModel
 import com.kite.zmusic.playback.PlaybackViewModelFactory
 import com.kite.zmusic.i18n.t
@@ -57,9 +58,15 @@ fun MainPlaceholderScreen(
 ) {
     val session by sessionRepository.session.collectAsStateWithLifecycle()
     val app = LocalContext.current.applicationContext as ZMusicApplication
+    val platform by app.musicPlatformStore.currentFlow.collectAsStateWithLifecycle()
+    val qishuiCookie by app.qishuiSessionStore.cookieFlow.collectAsStateWithLifecycle()
     var gate by remember {
         mutableStateOf(
-            if (app.sessionWarmup.isValidFor(sessionRepository.session.value?.cookie)) {
+            if (app.musicPlatformStore.current == MusicPlatform.QISHUI) {
+                if (app.qishuiSessionStore.cookie.isNullOrBlank()) MainGate.NeedLogin else MainGate.Ready
+            } else if (app.musicPlatformStore.current != MusicPlatform.NETEASE) {
+                MainGate.Ready
+            } else if (app.sessionWarmup.isValidFor(sessionRepository.session.value?.cookie)) {
                 MainGate.Ready
             } else {
                 MainGate.Checking
@@ -83,7 +90,20 @@ fun MainPlaceholderScreen(
         app.sessionWarmup.invalidate()
     }
 
-    LaunchedEffect(session?.cookie) {
+    LaunchedEffect(platform, session?.cookie, qishuiCookie) {
+        if (platform == MusicPlatform.QISHUI) {
+            if (qishuiCookie.isNullOrBlank()) {
+                gate = MainGate.NeedLogin
+                onRequireLogin()
+            } else {
+                gate = MainGate.Ready
+            }
+            return@LaunchedEffect
+        }
+        if (platform != MusicPlatform.NETEASE) {
+            gate = MainGate.Ready
+            return@LaunchedEffect
+        }
         val s = session
         if (s == null) {
             wipeLocalSession()

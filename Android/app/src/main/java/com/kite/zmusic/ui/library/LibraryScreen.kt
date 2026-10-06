@@ -385,6 +385,7 @@ private fun LibraryHomeLandscape(
                             onViewMoreCollection = onViewMoreCollection,
                             recentPlaylistIds = recentPlaylistIds,
                             recentAlbumIds = recentAlbumIds,
+                            unavailable = ui.unavailable,
                         )
                 }
             }
@@ -1074,6 +1075,7 @@ private fun LibraryHomePortrait(
                             onViewMoreCollection = onViewMoreCollection,
                             recentPlaylistIds = recentPlaylistIds,
                             recentAlbumIds = recentAlbumIds,
+                            unavailable = ui.unavailable,
                         )
                     }
                 }
@@ -1742,6 +1744,7 @@ private fun LibraryPlaylistBody(
     onViewMoreCollection: (albums: Boolean) -> Unit,
     recentPlaylistIds: List<Long>,
     recentAlbumIds: List<Long>,
+    unavailable: List<String> = emptyList(),
 ) {
     val liked = playlists.filter { it.isHeartPlaylist && it.isOwned }
     val created = playlists.filter { it.isOwned && !it.isHeartPlaylist }
@@ -1761,11 +1764,15 @@ private fun LibraryPlaylistBody(
     }
     val playlistCanMore = rankedCollected.size > previewLimit
     val albumCanMore = albumCount > previewLimit || (albumsHasMore && albums.size >= previewLimit)
+    val hideLiked = t("我喜欢的音乐") in unavailable
+    val hideCreated = t("创建的歌单") in unavailable
+    val hideCollection = t("收藏") in unavailable || t("收藏的专辑") in unavailable
     val scope = rememberCoroutineScope()
     val pager = remember(scope) { CollectionPagerState(scope, collectionKind.ordinal.toFloat()) }
     val showingAlbums = pager.offset >= 0.5f
     val canMore = if (showingAlbums) albumCanMore else playlistCanMore
 
+    if (!hideLiked) {
     PlaylistSectionColumn(
         region = PluginCollections.LIBRARY_LIKED,
         title = t("我喜欢的音乐"),
@@ -1774,6 +1781,8 @@ private fun LibraryPlaylistBody(
         onOpenPlaylist = onOpenPlaylist,
         onMorePlaylist = onMorePlaylist,
     )
+    }
+    if (!hideCreated) {
     PlaylistSectionColumn(
         region = PluginCollections.LIBRARY_CREATED,
         title = t("创建的歌单"),
@@ -1784,6 +1793,8 @@ private fun LibraryPlaylistBody(
         onCreate = onCreatePlaylist,
         showCount = true,
     )
+    }
+    if (!hideCollection) {
     LibrarySectionTitle(
         text = t("收藏"),
         trailing = {
@@ -1856,6 +1867,7 @@ private fun LibraryPlaylistBody(
             )
         },
     )
+    }
 }
 
 @Composable

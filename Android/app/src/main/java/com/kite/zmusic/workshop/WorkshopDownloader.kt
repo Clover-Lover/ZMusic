@@ -178,4 +178,55 @@ class WorkshopDownloader(
             }
         }
     }
+
+    suspend fun downloadPlain(
+        url: String,
+        dest: File,
+        maxBytes: Long = 32L * 1024 * 1024,
+        onProgress: (received: Long, total: Long) -> Unit,
+    ): Result<File> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (!url.startsWith("https://", ignoreCase = true) &&
+                !url.startsWith("http://", ignoreCase = true)
+            ) {
+                error("bad url")
+            }
+            dest.parentFile?.mkdirs()
+            if (dest.exists()) dest.delete()
+            val client = http.newBuilder()
+                .followRedirects(true)
+                .followSslRedirects(true)
+                .build()
+            val req = Request.Builder().url(url).header("User-Agent", "ZMusic").get().build()
+            client.newCall(req).execute().use { resp ->
+                coroutineContext.ensureActive()
+                if (resp.code != 200) error("download http ${resp.code}")
+                val body = resp.body ?: error("empty body")
+                val declared = resp.header("Content-Length")?.toLongOrNull()
+                val total = declared?.takeIf { it in 1..maxBytes } ?: maxBytes
+                dest.outputStream().use { out ->
+                    body.byteStream().use { input ->
+                        val buf = ByteArray(64 * 1024)
+                        var received = 0L
+                        while (true) {
+                            coroutineContext.ensureActive()
+                            val n = input.read(buf)
+                            if (n <= 0) break
+                            received += n
+                            if (received > maxBytes) {
+                                dest.delete()
+                                error("overflow")
+                            }
+                            out.write(buf, 0, n)
+                            onProgress(received, total.coerceAtLeast(received))
+                        }
+                        if (received == 0L) error("empty body")
+                    }
+                }
+                dest
+            }
+        }.onFailure {
+            dest.delete()
+        }
+    }
 }

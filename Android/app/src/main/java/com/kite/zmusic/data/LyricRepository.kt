@@ -2,6 +2,12 @@ package com.kite.zmusic.data
 
 import android.content.Context
 import android.util.LruCache
+import android.util.Log
+import com.kite.zmusic.data.platform.MusicPlatform
+import com.kite.zmusic.data.platform.MusicPlatformStore
+import com.kite.zmusic.data.platform.OpenMusicCatalog
+import com.kite.zmusic.data.platform.QishuiCatalog
+import com.kite.zmusic.data.platform.QqQrc
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -31,6 +37,9 @@ data class LyricPack(
 class LyricRepository(
     context: Context,
     private val userClient: NcmUserClient,
+    private val platformStore: MusicPlatformStore,
+    private val qishui: QishuiCatalog,
+    private val openCatalog: OpenMusicCatalog,
 ) {
     private val appContext = context.applicationContext
     private val memory = object : LruCache<Long, LyricPack>(48) {}
@@ -42,7 +51,7 @@ class LyricRepository(
     fun peekMemory(songId: Long): List<LrcLine>? =
         memory.get(songId)?.original?.takeIf { it.isNotEmpty() }
 
-    suspend fun loadBestEffort(songId: Long, cookie: String): LyricPack {
+    suspend fun loadBestEffort(songId: Long, cookie: String, track: TrackRow? = null): LyricPack {
         memory.get(songId)?.takeIf { it.translationResolved && it.wordOriginal.isNotEmpty() }?.let {
             return it
         }
@@ -56,6 +65,13 @@ class LyricRepository(
             return fromDisk
         }
         return try {
+            when (platformStore.current) {
+                MusicPlatform.QISHUI -> return loadQishui(songId, fromDisk)
+                MusicPlatform.QQ -> return loadQq(songId, track, fromDisk)
+                MusicPlatform.KUWO -> return loadKuwo(songId, track, fromDisk)
+                MusicPlatform.KUGOU -> return loadKugou(songId, track, fromDisk)
+                MusicPlatform.NETEASE -> Unit
+            }
             val json = withContext(Dispatchers.IO) { userClient.lyric(songId, cookie) }
             val originalRaw = NcmPlaybackParse.lrcText(json)
             val translatedRaw = NcmPlaybackParse.translatedLrcText(json)
@@ -122,9 +138,93 @@ class LyricRepository(
     }
 
     /** 预热邻曲歌词（已命中则立刻返回）。 */
-    suspend fun prefetch(songId: Long, cookie: String) {
+    suspend fun prefetch(songId: Long, cookie: String, track: TrackRow? = null) {
         if (memory.get(songId)?.translationResolved == true) return
-        loadBestEffort(songId, cookie)
+        loadBestEffort(songId, cookie, track)
+    }
+
+    private suspend fun loadQishui(songId: Long, fromDisk: LyricPack?): LyricPack {
+        val text = withContext(Dispatchers.IO) { qishui.lyric(songId) }.orEmpty()
+        val parsed = LrcParser.parse(text).takeIf { it.isNotEmpty() }
+            ?: text.takeIf { it.isNotBlank() }?.let { listOf(LrcLine(0L, it)) }
+            ?: return fromDisk ?: LyricPack.Empty
+        val pack = LyricPack(original = parsed, translationResolved = true)
+        memory.put(songId, pack)
+        return pack
+    }
+
+    private suspend fun loadQq(songId: Long, track: TrackRow?, fromDisk: LyricPack?): LyricPack {
+        val mid = track?.sourceId?.takeIf { it.isNotBlank() }.orEmpty()
+        val numeric = track?.sourceSongId ?: 0L
+        if (mid.isBlank() && numeric <= 0L) return fromDisk ?: LyricPack.Empty
+        val bundle = withContext(Dispatchers.IO) {
+            runCatching { openCatalog.qqLyrics(numeric, mid) }.getOrNull()
+        }
+        val original = bundle?.original.orEmpty()
+        if (original.isEmpty()) {
+            Log.i(TAG, "qq lyric empty id=$numeric mid=$mid")
+            return fromDisk ?: LyricPack.Empty
+        }
+        return finishOpen(songId, original, bundle?.translated.orEmpty(), "qq")
+    }
+
+    private suspend fun loadKuwo(songId: Long, track: TrackRow?, fromDisk: LyricPack?): LyricPack {
+        val rid = track?.sourceId?.takeIf { it.isNotBlank() }
+            ?: track?.id?.takeIf { it > 0L }?.toString().orEmpty()
+        if (rid.isBlank()) return fromDisk ?: LyricPack.Empty
+        val bundle = withContext(Dispatchers.IO) {
+            runCatching { openCatalog.kuwoLyrics(rid) }.getOrNull()
+        }
+        val original = bundle?.original.orEmpty()
+        if (original.isEmpty()) {
+            Log.i(TAG, "kuwo lyric empty rid=$rid")
+            return fromDisk ?: LyricPack.Empty
+        }
+        return finishOpen(songId, original, bundle?.translated.orEmpty(), "kuwo")
+    }
+
+    private suspend fun loadKugou(songId: Long, track: TrackRow?, fromDisk: LyricPack?): LyricPack {
+        val name = track?.name?.takeIf { it.isNotBlank() && it != "未命名" }.orEmpty()
+        val hash = track?.sourceHash.orEmpty()
+        if (name.isBlank() && hash.isBlank()) return fromDisk ?: LyricPack.Empty
+        val bundle = withContext(Dispatchers.IO) {
+            runCatching { openCatalog.kugouLyrics(name, hash, track?.durationMs ?: 0L) }.getOrNull()
+        }
+        val original = bundle?.original.orEmpty()
+        if (original.isEmpty()) {
+            Log.i(TAG, "kugou lyric empty hash=${hash.take(8)}")
+            return fromDisk ?: LyricPack.Empty
+        }
+        return finishOpen(songId, original, bundle?.translated.orEmpty(), "kugou")
+    }
+
+    private suspend fun finishOpen(
+        songId: Long,
+        original: List<LrcLine>,
+        translated: List<LrcLine>,
+        label: String,
+    ): LyricPack {
+        val wordOriginal = original.filter { it.words.isNotEmpty() }
+        val wordTranslated = translated.filter { it.words.isNotEmpty() }
+        val pack = LyricPack(
+            original = original,
+            translated = translated,
+            wordOriginal = wordOriginal,
+            wordTranslated = wordTranslated,
+            translationResolved = true,
+        )
+        memory.put(songId, pack)
+        withContext(Dispatchers.IO) {
+            writePackLocked(
+                songId = songId,
+                originalRaw = QqQrc.toLrc(original),
+                translatedRaw = translated.takeIf { it.isNotEmpty() }?.let(QqQrc::toLrc),
+                yrcRaw = wordOriginal.takeIf { it.isNotEmpty() }?.let(QqQrc::toYrc),
+                ytlrcRaw = wordTranslated.takeIf { it.isNotEmpty() }?.let(QqQrc::toYrc),
+            )
+        }
+        Log.i(TAG, "$label lyric lines=${original.size} words=${wordOriginal.size} trans=${translated.size}")
+        return pack
     }
 
     private fun diskFile(songId: Long) = File(dir, "$songId.lrc")
@@ -254,6 +354,7 @@ class LyricRepository(
     }
 
     companion object {
+        private const val TAG = "ZMusicSource"
         private const val DISK_MAX_FILES = 80
     }
 }

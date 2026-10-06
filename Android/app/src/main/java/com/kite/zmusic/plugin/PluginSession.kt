@@ -35,6 +35,14 @@ internal class PluginSession(
     private val device: PluginDeviceHost,
     private val store: PluginKvStore,
     private val ui: PluginUiBridge,
+    private val betterncmData: File,
+    private val bncmOpenUrl: (String) -> Boolean = { false },
+    private val bncmOpenFile: (String, String) -> String = { _, _ -> "" },
+    private val bncmReload: () -> Boolean = { false },
+    private val bncmMirror: (String) -> Unit = {},
+    private val bncmEapi: (String) -> String = { """{"code":502,"msg":"unsupported"}""" },
+    private val bncmLook: (BetterNcmLook) -> Unit = {},
+    private val bncmLibText: (String) -> String? = { null },
     private val faultBusy: () -> Boolean,
     private val broadcastHook: (name: String, args: List<Any?>) -> Boolean,
     private val timerScheduler: ScheduledExecutorService,
@@ -68,6 +76,7 @@ internal class PluginSession(
     private val timersLock = Any()
     private val namedTimers = HashMap<String, TimerSlot>()
     private val simpleTimers = ArrayList<TimerSlot>()
+    private var betterncm: BetterNcmRuntime? = null
 
     fun hostApiAllowed(): Boolean = state == PluginJsState.Running
 
@@ -97,6 +106,7 @@ internal class PluginSession(
 
     fun stop() {
         ended = true
+        betterncm?.close()
         http?.cancel(record.id)
         device.cancel(record.id)
         synchronized(timersLock) {
@@ -154,15 +164,85 @@ internal class PluginSession(
         contextRef.set(ctx)
         injectXuan(ctx)
         installConsole(ctx)
+        val runtime = BetterNcmRuntime(
+            host = BetterNcmHost(
+                dataRoot = betterncmData,
+                pluginId = record.id,
+                pluginRoot = extractDir,
+                lightTheme = { !hostFacts().dark },
+                playback = { playback() },
+                openUrl = bncmOpenUrl,
+                openFile = bncmOpenFile,
+                reloadSelf = bncmReload,
+                mirrorDom = bncmMirror,
+                eapiCall = bncmEapi,
+                themeLook = bncmLook,
+                control = { op, arg -> bncmControl(op, arg) },
+                fetchExternal = { method, url, body, headers -> bncmFetch(method, url, body, headers) },
+            ),
+            scheduler = timerScheduler,
+            onPluginThread = { task ->
+                if (!ended) {
+                    runCatching { executor.execute(task) }
+                }
+            },
+        )
+        betterncm = runtime
+        runtime.install(ctx)
         try {
-            ctx.evaluate(source, record.entry)
-            if (state == PluginJsState.Uninitialized) {
-                PluginLog.w(debug(), "插件 ${record.id} 未注册状态，跳过")
-                journal.append(record.id, t("未按协议注册运行状态"))
-                setState(PluginJsState.Error)
-                destroyContext()
-            } else if (state == PluginJsState.Error) {
-                destroyContext()
+            val manifest = BetterNcmManifests.read(File(extractDir, "manifest.json"))
+            if (manifest != null) {
+                runtime.installBundledLibs(bncmLibText(BetterNcmLibs.LYRIC_ASSET))
+            }
+            runtime.bind(manifest, record.id)
+            if (manifest != null) {
+                val startupName = manifest.startupScript
+                if (!startupName.isNullOrEmpty()) {
+                    val startup = File(extractDir, startupName)
+                    if (startup.isFile) {
+                        runtime.evalInject(startup.readText(Charsets.UTF_8), startupName)
+                    }
+                }
+                for (file in manifest.mainInjects()) {
+                    val script = File(extractDir, file)
+                    if (!script.isFile) {
+                        journal.append(record.id, t("缺少入口"))
+                        setState(PluginJsState.Error)
+                        destroyContext()
+                        return
+                    }
+                    runtime.evalInject(script.readText(Charsets.UTF_8), file)
+                    runtime.dispatch("load")
+                    val error = runtime.loadError()
+                    if (error.isNotEmpty()) {
+                        journal.append(record.id, t("脚本异常: %s", error))
+                        setState(PluginJsState.Error)
+                        destroyContext()
+                        return
+                    }
+                }
+                runtime.dispatch("allpluginsloaded")
+                val error = runtime.loadError()
+                if (error.isNotEmpty()) {
+                    journal.append(record.id, t("脚本异常: %s", error))
+                    setState(PluginJsState.Error)
+                    destroyContext()
+                    return
+                }
+                if (state == PluginJsState.Uninitialized) {
+                    setState(PluginJsState.Running)
+                }
+            } else {
+                ctx.evaluate(source, record.entry)
+                runtime.dispatch("load")
+                if (state == PluginJsState.Uninitialized) {
+                    PluginLog.w(debug(), "插件 ${record.id} 未注册状态，跳过")
+                    journal.append(record.id, t("未按协议注册运行状态"))
+                    setState(PluginJsState.Error)
+                    destroyContext()
+                } else if (state == PluginJsState.Error) {
+                    destroyContext()
+                }
             }
         } catch (e: QuickJSException) {
             if (state != PluginJsState.Error) {
@@ -653,6 +733,53 @@ internal class PluginSession(
         val arr = ctx.createNewJSArray()
         bytes.forEachIndexed { i, b -> arr.set(b.toInt() and 0xFF, i) }
         return arr
+    }
+
+    private fun bncmControl(op: String, arg: String): String {
+        return when (op) {
+            "seek" -> {
+                val ms = arg.toLongOrNull() ?: return "false"
+                player.seek(ms).toString()
+            }
+            "volume" -> {
+                val level = arg.toFloatOrNull() ?: return "false"
+                player.setVolume(level).toString()
+            }
+            "volume.get" -> player.volume().toString()
+            "rate" -> {
+                val rate = arg.toFloatOrNull() ?: return "false"
+                player.setPlaybackRate(rate).toString()
+            }
+            "rate.get" -> player.playbackRate().toString()
+            "play" -> player.play().toString()
+            "pause" -> player.pause().toString()
+            "next" -> player.next().toString()
+            "prev" -> player.prev().toString()
+            else -> "false"
+        }
+    }
+
+    private fun bncmFetch(
+        method: String,
+        url: String,
+        body: String,
+        headers: Map<String, String>,
+    ): Map<String, Any?> {
+        val client = http ?: return mapOf("status" to 0, "text" to "", "b64" to "")
+        val payload = linkedMapOf<String, Any?>(
+            "url" to url,
+            "method" to method,
+            "headers" to headers,
+        )
+        val verb = method.uppercase()
+        if (body.isNotEmpty() && verb != "GET" && verb != "HEAD") payload["body"] = body
+        val req = PluginHttpParams.parse(payload) ?: return mapOf("status" to 0, "text" to "", "b64" to "")
+        val result = client.execute(req)
+        return mapOf(
+            "status" to (result["status"] as? Int ?: 0),
+            "text" to (result["text"] as? String).orEmpty(),
+            "b64" to (result["b64"] as? String).orEmpty(),
+        )
     }
 
     private fun playerGet(ctx: QuickJSContext): Any? {
@@ -1292,6 +1419,8 @@ internal class PluginSession(
     }
 
     private fun destroyContext() {
+        betterncm?.close()
+        betterncm = null
         requireCache.clear()
         val ctx = contextRef.getAndSet(null) ?: return
         try {

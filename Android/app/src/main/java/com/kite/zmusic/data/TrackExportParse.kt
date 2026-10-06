@@ -16,6 +16,7 @@ internal data class TrackExportMeta(
     val lyricsFile: String?,
     val lyricsTranslatedFile: String?,
     val exportedAt: Long = 0L,
+    val fee: Int = 0,
 )
 
 internal fun parseTrackExportJson(raw: String): TrackExportMeta? {
@@ -35,6 +36,7 @@ internal fun parseTrackExportJson(raw: String): TrackExportMeta? {
         lyricsFile = jsonStringOrNull(files, "lyrics"),
         lyricsTranslatedFile = jsonStringOrNull(files, "lyricsTranslated"),
         exportedAt = o.optLong("exportedAt", 0L),
+        fee = o.optInt("fee", 0),
     )
 }
 

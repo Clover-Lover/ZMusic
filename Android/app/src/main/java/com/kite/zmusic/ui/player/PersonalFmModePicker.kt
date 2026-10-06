@@ -55,10 +55,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.kite.zmusic.data.ChromeGlassMode
 import com.kite.zmusic.data.PersonalFmModeChoice
 import com.kite.zmusic.data.personalFmModeEntries
 import com.kite.zmusic.i18n.I18n
 import com.kite.zmusic.i18n.t
+import com.kite.zmusic.ui.main.LocalChromeGlassStyle
 import com.kite.zmusic.ui.main.MainPalette
 import com.kite.zmusic.ui.main.playerOverlayGlass
 import dev.chrisbanes.haze.HazeState
@@ -155,7 +157,13 @@ internal fun PersonalFmModePickerOverlay(
         val iconA = 1f - ramp(t, 0.10f, 0.46f)
         val iconScale = 1f + ramp(t, 0f, 0.42f) * 0.22f
         val contentA = ramp(t, 0.36f, 0.78f)
-        val ink = MainPalette.Ink
+        val glassMode = LocalChromeGlassStyle.current.mode
+        // 液态 / 磨砂采的是偏暗的播放页，浅色主题的深色正文会消失。字跟播放页一样用浅色，玻璃样式保留。
+        val ink = if (glassMode == ChromeGlassMode.Solid && !MainPalette.isDark) {
+            MainPalette.Ink
+        } else {
+            LyricCurrent
+        }
         val glyphSize = if (chromeBackground) 18.dp else 15.dp
         val startCx = originBounds.left + originBounds.width / 2f
         val startCy = originBounds.top + originBounds.height / 2f

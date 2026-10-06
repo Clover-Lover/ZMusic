@@ -6,6 +6,7 @@ import com.kite.zmusic.data.catalogString
 import com.kite.zmusic.data.parseCatalogArray
 import com.kite.zmusic.data.xaiop.OkHttpXaiop
 import com.kite.zmusic.plugin.PluginEngineVersion
+import com.kite.zmusic.plugin.PluginJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -17,6 +18,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.CompletionException
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -25,7 +27,15 @@ class WorkshopClient(
     private val xaiop: OkHttpXaiop,
     private val community: CommunityServerStore,
     private val auth: WorkshopAuthStore,
+    private val marketCacheFile: java.io.File? = null,
 ) {
+    @Volatile
+    private var betterNcmCache: List<BetterNcmRemote>? = null
+
+    @Volatile
+    private var betterNcmRevision: Int = Int.MIN_VALUE
+
+    private val readmeCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     fun authority(): String {
         val e = community.current()
         val host = e.host.trim()
@@ -56,6 +66,7 @@ class WorkshopClient(
         perPage: Int = 20,
         sort: String = "updated",
         q: String = "",
+        category: String = "",
     ): WorkshopPage<WorkshopPluginCard> {
         val parts = buildList {
             add("page=$page")
@@ -63,6 +74,7 @@ class WorkshopClient(
             add("sort=${enc(sort)}")
             add("engine=${PluginEngineVersion.number}")
             if (q.isNotBlank()) add("q=${enc(q.trim())}")
+            if (category.isNotBlank()) add("category=${enc(category.trim())}")
         }
         val url = httpUrl("$BASE/plugins", parts.joinToString("&"))
         val snap = getXaiop(url)
@@ -70,6 +82,129 @@ class WorkshopClient(
         throwIfBusinessError(pageData.ok, pageData.error)
         return WorkshopPage(pageData.ok, pageData.error, pageData.more, pageData.entries)
     }
+
+    internal suspend fun listBetterNcm(
+        page: Int,
+        perPage: Int = 20,
+        q: String = "",
+        refresh: Boolean = false,
+    ): WorkshopPage<WorkshopPluginCard> =
+        withContext(Dispatchers.IO) {
+            BetterNcmMarket.page(loadBetterNcm(refresh), page, perPage, q)
+        }
+
+    internal suspend fun findBetterNcm(slug: String): BetterNcmRemote? = withContext(Dispatchers.IO) {
+        loadBetterNcm().find { it.card.id.equals(slug, ignoreCase = true) }
+    }
+
+    /**
+     * 市场目录只有一句简介。更长的说明在插件仓库的 README，不在 plugins.json。
+     */
+    internal suspend fun fetchRepoReadme(repo: String): String = withContext(Dispatchers.IO) {
+        val key = repo.trim()
+        if (key.isEmpty()) return@withContext ""
+        readmeCache[key]?.let { return@withContext it }
+        val urls = BetterNcmMarket.readmeCandidates(key)
+        if (urls.isEmpty()) return@withContext ""
+        val fetcher = externalHttp(6)
+        for (url in urls) {
+            try {
+                val request = Request.Builder().url(url).get().build()
+                fetcher.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val body = response.body?.string()?.trim().orEmpty()
+                    if (body.isEmpty() ||
+                        body.startsWith("<!DOCTYPE", ignoreCase = true) ||
+                        body.startsWith("<html", ignoreCase = true)
+                    ) {
+                        return@use
+                    }
+                    val text = body.take(24_000)
+                    readmeCache[key] = text
+                    return@withContext text
+                }
+            } catch (_: Exception) {
+            }
+        }
+        ""
+    }
+
+    private fun loadBetterNcm(refresh: Boolean = false): List<BetterNcmRemote> {
+        val revision = com.kite.zmusic.config.BetterNcmMarketConfig.revision
+        if (!refresh && betterNcmRevision == revision) {
+            betterNcmCache?.let { return it }
+        }
+        val fetched = fetchMarket()
+        if (fetched != null) {
+            betterNcmCache = fetched
+            betterNcmRevision = revision
+            return fetched
+        }
+        val cached = readMarketCache()
+        if (cached != null) {
+            betterNcmCache = cached
+            betterNcmRevision = revision
+            return cached
+        }
+        betterNcmCache?.let { return it }
+        throw marketFailure ?: WorkshopApiError.Message("betterncm market")
+    }
+
+    private fun fetchMarket(): List<BetterNcmRemote>? {
+        val fetcher = externalHttp(12)
+        marketFailure = null
+        for (base in BetterNcmMarket.sources) {
+            try {
+                val request = Request.Builder()
+                    .url(BetterNcmMarket.catalogUrl(base))
+                    .header("Accept", "application/json,text/plain,*/*")
+                    .header("User-Agent", "ZMusic")
+                    .get()
+                    .build()
+                fetcher.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val body = response.body?.string().orEmpty().trim()
+                    if (!body.startsWith("[")) return@use
+                    val parsed = BetterNcmMarket.parse(body, base)
+                    if (parsed.isEmpty()) return@use
+                    writeMarketCache(base, body)
+                    return parsed
+                }
+            } catch (e: Exception) {
+                marketFailure = e
+            }
+        }
+        return null
+    }
+
+    /** 市场目录是普通 JSON，要自己跟随 CDN 跳转。工坊客户端默认不跟随，避免社区流被改道。 */
+    private fun externalHttp(timeoutSec: Long): OkHttpClient = http.newBuilder()
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(timeoutSec, TimeUnit.SECONDS)
+        .callTimeout(timeoutSec, TimeUnit.SECONDS)
+        .build()
+
+    private fun writeMarketCache(base: String, body: String) {
+        val file = marketCacheFile ?: return
+        runCatching {
+            file.parentFile?.mkdirs()
+            file.writeText(PluginJson.stringify(mapOf("base" to base, "body" to body)))
+        }
+    }
+
+    private fun readMarketCache(): List<BetterNcmRemote>? {
+        val file = marketCacheFile ?: return null
+        val text = runCatching { file.takeIf { it.isFile }?.readText() }.getOrNull() ?: return null
+        val obj = PluginJson.parseObject(text) ?: return null
+        val base = obj["base"] as? String ?: return null
+        val body = obj["body"] as? String ?: return null
+        return BetterNcmMarket.parse(body, base).takeIf { it.isNotEmpty() }
+    }
+
+    @Volatile
+    private var marketFailure: Exception? = null
 
     suspend fun pluginDetail(id: String): WorkshopPluginDetail {
         val url = httpUrl("$BASE/plugins/${enc(id)}")
@@ -273,6 +408,7 @@ class WorkshopClient(
                 updatedAt = catalogLong(m["updated_at"]) ?: 0L,
                 engineMin = engineMin,
                 engineMax = engineMax,
+                category = catalogString(m["category"]),
             )
         }
 

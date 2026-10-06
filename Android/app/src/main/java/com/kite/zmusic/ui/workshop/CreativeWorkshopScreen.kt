@@ -80,6 +80,7 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kite.zmusic.ZMusicApplication
 import com.kite.zmusic.data.NetworkPhase
+import com.kite.zmusic.plugin.BetterNcmLibs
 import com.kite.zmusic.plugin.PluginDebugProbe
 import com.kite.zmusic.plugin.PluginRecord
 import com.kite.zmusic.ui.catalog.CatalogTopBar
@@ -102,6 +103,7 @@ import com.kite.zmusic.ui.main.wallpaperItemChrome
 import com.kite.zmusic.ui.notice.showIslandNotice
 import com.kite.zmusic.ui.theme.MainControls
 import com.kite.zmusic.workshop.WorkshopApiError
+import com.kite.zmusic.workshop.WorkshopCategories
 import com.kite.zmusic.workshop.WorkshopPluginCard
 import com.kite.zmusic.workshop.WorkshopPluginDetail
 import java.io.File
@@ -404,6 +406,44 @@ private fun WorkshopTabLabel(
 }
 
 @Composable
+private fun WorkshopCategoryRow(
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(
+            WorkshopCategories.ALL to t("全部"),
+            WorkshopCategories.BETTERNCM to t("BetterNCM"),
+        ).forEach { (id, label) ->
+            val on = selected == id
+            Text(
+                text = label,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (on) MainPalette.Accent.copy(alpha = 0.16f) else Color.Transparent)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onSelect(id) },
+                    )
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                style = TextStyle(
+                    color = if (on) MainPalette.Accent else MainPalette.Secondary,
+                    fontSize = 13.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
 private fun WorkshopGate(
     contentBottomInset: Dp,
     onConfirm: () -> Unit,
@@ -476,6 +516,10 @@ private fun WorkshopBrowseTab(
 ) {
     val app = LocalContext.current.applicationContext as ZMusicApplication
     val repo = app.workshopRepository
+    var category by remember { mutableStateOf(WorkshopCategories.ALL) }
+    var query by remember { mutableStateOf("") }
+    var appliedQuery by remember { mutableStateOf("") }
+    val searchFocus = remember { FocusRequester() }
     var items by remember { mutableStateOf<List<WorkshopPluginCard>>(emptyList()) }
     var more by remember { mutableStateOf(false) }
     var page by remember { mutableIntStateOf(1) }
@@ -486,31 +530,58 @@ private fun WorkshopBrowseTab(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    fun loadFirst(pull: Boolean) {
+    fun loadFirst(pull: Boolean, q: String) {
         scope.launch {
             if (pull) refreshing = true
-            runCatching { repo.listPlugins(1) }
+            val selected = category
+            runCatching { repo.listPlugins(1, q = q, category = selected, refresh = pull) }
                 .onSuccess {
+                    if (category != selected) return@onSuccess
+                    val currentQ = if (category == WorkshopCategories.BETTERNCM) appliedQuery else ""
+                    if (currentQ != q) return@onSuccess
                     items = it.entries
                     more = it.more
                     page = 1
                     failed = false
                 }
                 .onFailure {
+                    if (category != selected) return@onFailure
+                    val currentQ = if (category == WorkshopCategories.BETTERNCM) appliedQuery else ""
+                    if (currentQ != q) return@onFailure
                     if (!pull || items.isEmpty()) {
                         items = emptyList()
                         more = false
                     }
                     failed = items.isEmpty()
                 }
-            ready = true
-            refreshing = false
+            if (category == selected) {
+                val currentQ = if (category == WorkshopCategories.BETTERNCM) appliedQuery else ""
+                if (currentQ == q) {
+                    ready = true
+                    refreshing = false
+                }
+            }
         }
     }
 
-    LaunchedEffect(Unit) { loadFirst(pull = false) }
+    LaunchedEffect(query) {
+        if (category != WorkshopCategories.BETTERNCM) return@LaunchedEffect
+        delay(200)
+        val next = query.trim()
+        if (next != appliedQuery) appliedQuery = next
+    }
 
-    LaunchedEffect(listState, more, loadingMore, ready, failed, refreshing) {
+    LaunchedEffect(category, appliedQuery) {
+        items = emptyList()
+        more = false
+        page = 1
+        ready = false
+        failed = false
+        val q = if (category == WorkshopCategories.BETTERNCM) appliedQuery else ""
+        loadFirst(pull = false, q = q)
+    }
+
+    LaunchedEffect(listState, more, loadingMore, ready, failed, refreshing, category, appliedQuery) {
         snapshotFlow {
             val info = listState.layoutInfo
             val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -519,59 +590,104 @@ private fun WorkshopBrowseTab(
             if (nearEnd && more && ready && !failed && !loadingMore && !refreshing) {
                 loadingMore = true
                 val next = page + 1
-                runCatching { repo.listPlugins(next) }
+                val selected = category
+                val q = if (selected == WorkshopCategories.BETTERNCM) appliedQuery else ""
+                runCatching { repo.listPlugins(next, q = q, category = selected) }
                     .onSuccess {
+                        if (category != selected) return@onSuccess
                         items = items + it.entries
                         more = it.more
                         page = next
                     }
-                loadingMore = false
+                if (category == selected) loadingMore = false
             }
         }
     }
 
-    ZPullRefresh(
-        refreshing = refreshing,
-        onRefresh = { loadFirst(pull = true) },
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        when {
-            !ready && !failed -> {
-                // 与更新日志相同：就绪前不空转圈，失败后直接繁忙文案
-                Box(Modifier.fillMaxSize())
-            }
-            failed && items.isEmpty() -> {
-                WorkshopEmptyHint(t("社区服务器繁忙"), contentBottomInset)
-            }
-            items.isEmpty() -> {
-                WorkshopEmptyHint(t("暂无上架插件"), contentBottomInset)
-            }
-            else -> {
-                LazyColumn(
-                    state = listState,
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 8.dp,
-                        bottom = contentBottomInset + 16.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(items, key = { it.id }) { card ->
-                        WorkshopCardRow(card) { onOpenDetail(card.id) }
-                    }
-                    if (loadingMore) {
-                        item {
-                            Box(
-                                Modifier.fillMaxWidth().padding(12.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(22.dp),
-                                    color = MainPalette.Accent,
-                                    strokeWidth = 2.dp,
-                                )
+    Column(Modifier.fillMaxSize()) {
+        WorkshopCategoryRow(
+            selected = category,
+            onSelect = {
+                query = ""
+                appliedQuery = ""
+                category = it
+            },
+        )
+        if (category == WorkshopCategories.BETTERNCM) {
+            WorkshopSearchField(
+                value = query,
+                onValueChange = { query = it },
+                onSearch = { },
+                onClear = {
+                    query = ""
+                    appliedQuery = ""
+                },
+                focusRequester = searchFocus,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            )
+        }
+        ZPullRefresh(
+            refreshing = refreshing,
+            onRefresh = {
+                val q = if (category == WorkshopCategories.BETTERNCM) appliedQuery else ""
+                loadFirst(pull = true, q = q)
+            },
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+        ) {
+            when {
+                !ready && !failed -> {
+                    Box(Modifier.fillMaxSize())
+                }
+                failed && items.isEmpty() -> {
+                    WorkshopEmptyHint(
+                        if (category == WorkshopCategories.BETTERNCM) {
+                            t("插件市场暂时打不开")
+                        } else {
+                            t("社区服务器繁忙")
+                        },
+                        contentBottomInset,
+                    )
+                }
+                items.isEmpty() -> {
+                    WorkshopEmptyHint(
+                        if (category == WorkshopCategories.BETTERNCM && appliedQuery.isNotEmpty()) {
+                            t("没有找到相关插件")
+                        } else if (category == WorkshopCategories.BETTERNCM) {
+                            t("这个分类还没有插件")
+                        } else {
+                            t("暂无上架插件")
+                        },
+                        contentBottomInset,
+                    )
+                }
+                else -> {
+                    LazyColumn(
+                        state = listState,
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 8.dp,
+                            bottom = contentBottomInset + 16.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(items, key = { it.id }) { card ->
+                            WorkshopCardRow(card) { onOpenDetail(card.id) }
+                        }
+                        if (loadingMore) {
+                            item {
+                                Box(
+                                    Modifier.fillMaxWidth().padding(12.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        t("加载中"),
+                                        style = TextStyle(color = MainPalette.Secondary, fontSize = 13.sp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -621,32 +737,34 @@ private fun WorkshopSearchPage(
             searchFailed = false
             return
         }
-        if (offline) {
-            searchFailed = true
-            didSearch = true
-            items = emptyList()
-            more = false
-            return
-        }
         scope.launch {
             if (reset) searching = true
             val targetPage = if (reset) 1 else page + 1
-            runCatching { repo.listPlugins(targetPage, trimmed) }
-                .onSuccess {
-                    items = if (reset) it.entries else items + it.entries
-                    more = it.more
-                    page = targetPage
-                    didSearch = true
-                    searchFailed = false
-                }
-                .onFailure {
-                    if (reset) {
-                        items = emptyList()
-                        more = false
-                        searchFailed = true
-                    }
-                    didSearch = true
-                }
+            val market = if (reset) {
+                runCatching {
+                    repo.listPlugins(1, trimmed, category = WorkshopCategories.BETTERNCM, perPage = 80)
+                }.getOrNull()
+            } else {
+                null
+            }
+            val community = runCatching { repo.listPlugins(targetPage, trimmed) }
+            val marketEntries = market?.entries.orEmpty()
+            val communityPage = community.getOrNull()
+            if (communityPage == null && marketEntries.isEmpty() && reset) {
+                items = emptyList()
+                more = false
+                searchFailed = true
+                didSearch = true
+            } else if (communityPage == null && !reset) {
+                didSearch = true
+            } else {
+                val communityEntries = communityPage?.entries.orEmpty()
+                items = if (reset) marketEntries + communityEntries else items + communityEntries
+                more = communityPage?.more == true
+                page = targetPage
+                didSearch = true
+                searchFailed = false
+            }
             searching = false
             loadingMore = false
         }
@@ -728,7 +846,7 @@ private fun WorkshopSearchPage(
             modifier = Modifier.padding(horizontal = 20.dp),
         )
         val status = when {
-            offline || searchFailed -> t("社区服务器繁忙")
+            (offline || searchFailed) && items.isEmpty() -> t("社区服务器繁忙")
             query.trim().isEmpty() -> t("输入插件名或 id")
             searching && items.isEmpty() -> null
             didSearch && items.isEmpty() -> t("没有找到相关插件")
@@ -763,7 +881,7 @@ private fun WorkshopSearchPage(
                     ),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(items, key = { it.id }) { card ->
+                    items(items, key = { "${it.category}:${it.id}" }) { card ->
                         WorkshopCardRow(card) { onOpenDetail(card.id) }
                     }
                     if (loadingMore) {
@@ -913,7 +1031,7 @@ private fun WorkshopCardRow(card: WorkshopPluginCard, onClick: () -> Unit) {
             Text(
                 t(
                     "v%s · ★ %s · %s 次下载",
-                    card.version,
+                    card.versionLabel.ifBlank { card.version.toString() },
                     String.format("%.1f", card.ratingAvg),
                     card.downloads,
                 ),
@@ -987,16 +1105,17 @@ private fun WorkshopModulesTab(contentBottomInset: Dp) {
         }
         items(modules, key = { it.id }) { rec ->
             val probe = rec.id == PluginDebugProbe.ID
+            val bundledLib = BetterNcmLibs.isModule(rec.id)
             ModuleRow(
                 record = rec,
-                readOnly = probe,
+                readOnly = probe || bundledLib,
                 switchColors = switchColors,
                 onEnabled = { enabled ->
-                    if (probe) return@ModuleRow
+                    if (probe || bundledLib) return@ModuleRow
                     repo.setModuleEnabled(rec.id, enabled)
                     refresh()
                 },
-                onMore = if (probe) {
+                onMore = if (probe || bundledLib) {
                     null
                 } else {
                     { moreTarget = rec }
@@ -1061,9 +1180,9 @@ private fun listModulesOrdered(repo: com.kite.zmusic.workshop.WorkshopRepository
         quarantined = false,
     )
     val others = list
-        .filter { it.id != PluginDebugProbe.ID }
+        .filter { it.id != PluginDebugProbe.ID && !BetterNcmLibs.isModule(it.id) }
         .sortedBy { it.name.lowercase() }
-    return listOf(probe) + others
+    return listOf(probe) + BetterNcmLibs.moduleRecords() + others
 }
 
 private fun copyPickedZpp(context: Context, uri: Uri): File? {
@@ -1168,7 +1287,11 @@ private fun ModuleRow(
             Spacer(Modifier.height(2.dp))
             Text(
                 if (readOnly) {
-                    t("引擎探针 · 仅显示")
+                    if (BetterNcmLibs.isModule(record.id)) {
+                        t("内置依赖 · 已留在引擎里")
+                    } else {
+                        t("引擎探针 · 仅显示")
+                    }
                 } else {
                     buildString {
                         append(record.id)
@@ -1259,6 +1382,10 @@ private fun WorkshopDetailPage(
             }
         }
         loading = false
+        if (d != null && WorkshopCategories.matches(d.card, WorkshopCategories.BETTERNCM)) {
+            val about = runCatching { repo.betterNcmReadme(pluginId) }.getOrNull().orEmpty()
+            if (about.isNotBlank()) detail = d.copy(readme = about)
+        }
     }
 
     if (offline) {
@@ -1372,7 +1499,7 @@ private fun WorkshopDetailPage(
             )
             WorkshopMetricDivider()
             WorkshopMetricCell(
-                primary = "v${d.card.version}",
+                primary = "v${d.card.versionLabel.ifBlank { d.card.version.toString() }}",
                 secondary = t("引擎 %s", d.card.engineMin) +
                     (d.card.engineMax?.let { "–$it" } ?: "+"),
             )

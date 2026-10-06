@@ -672,6 +672,11 @@ open class CatalogViewModel(
         closePlaylist()
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
+            val openedFirst = withContext(Dispatchers.IO) { albumTracksCache.loadOpen(id, title) }
+            if (openedFirst != null) {
+                applyAlbumEntry(openedFirst, title)
+                return@launch
+            }
             if (!force) {
                 val live = _list.value.takeIf { it.albumId == id && it.tracks.isNotEmpty() }
                 if (live != null) {
@@ -698,6 +703,11 @@ open class CatalogViewModel(
                         error = null,
                     )
                 }
+            }
+            val opened = withContext(Dispatchers.IO) { albumTracksCache.loadOpen(id, title) }
+            if (opened != null) {
+                applyAlbumEntry(opened, title)
+                return@launch
             }
             val cookie = cookieOrNull() ?: return@launch
             try {
@@ -845,6 +855,18 @@ open class CatalogViewModel(
                         loading = true,
                     )
                 }
+            }
+            val openSongs = withContext(Dispatchers.IO) { playlistTracksCache.openArtistSongs(artistId) }
+            if (openSongs != null) {
+                _list.update {
+                    it.copy(
+                        tracks = openSongs,
+                        loading = false,
+                        refreshing = false,
+                        error = if (openSongs.isEmpty()) t("没有歌曲") else null,
+                    )
+                }
+                return@launch
             }
             val cookie = sessionRepository.session.value?.cookie.orEmpty()
             try {

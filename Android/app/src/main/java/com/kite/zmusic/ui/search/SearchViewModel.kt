@@ -16,6 +16,9 @@ import com.kite.zmusic.data.SearchPlaylistHit
 import com.kite.zmusic.data.SearchUserHit
 import com.kite.zmusic.data.SessionRepository
 import com.kite.zmusic.data.TrackRow
+import com.kite.zmusic.data.platform.MusicPlatform
+import com.kite.zmusic.data.platform.MusicPlatformStore
+import com.kite.zmusic.data.platform.OpenMusicCatalog
 import com.kite.zmusic.i18n.t
 import com.kite.zmusic.ui.easter.MjEasterEgg
 import kotlinx.coroutines.CancellationException
@@ -163,6 +166,8 @@ class SearchViewModel(
     private val searchHistory: SearchHistoryRepository,
     private val search: SearchRepository,
     private val likedPlaylistRepository: LikedPlaylistRepository,
+    private val platformStore: MusicPlatformStore,
+    private val openCatalog: OpenMusicCatalog,
 ) : ViewModel() {
 
     private val _ui = MutableStateFlow(SearchUiState(history = searchHistory.items.value))
@@ -181,8 +186,16 @@ class SearchViewModel(
             }
         }
         viewModelScope.launch {
+            val platform = platformStore.current
+            if (platform == MusicPlatform.KUWO || platform == MusicPlatform.KUGOU || platform == MusicPlatform.QQ) {
+                val words = runCatching { openCatalog.hotWords(platform) }.getOrDefault(emptyList())
+                _ui.update {
+                    it.copy(hotWords = words.take(12).map { word -> HotSearchWord(word, null, false) })
+                }
+                return@launch
+            }
             val cookie = sessionRepository.session.value?.cookie.orEmpty()
-            if (cookie.isBlank()) return@launch
+            if (cookie.isBlank() || platform != MusicPlatform.NETEASE) return@launch
             try {
                 val json = search.searchHotDetail(cookie)
                 _ui.update { it.copy(hotWords = NcmHomeParse.hotSearchWords(json).take(12)) }
@@ -269,8 +282,86 @@ class SearchViewModel(
     fun submitSearch() {
         val q = _ui.value.query.trim()
         if (q.isEmpty()) return
-        MjEasterEgg.consider(q)
-        runFullSearch(q, kindForQuery(q))
+        when (platformStore.current) {
+            MusicPlatform.NETEASE -> {
+                MjEasterEgg.consider(q)
+                runFullSearch(q, kindForQuery(q))
+            }
+            MusicPlatform.KUWO, MusicPlatform.KUGOU, MusicPlatform.QQ -> runOpenSearch(q)
+            else -> _ui.update {
+                it.copy(phase = SearchPhase.Results, searchError = t("未支持"), suggesting = false)
+            }
+        }
+    }
+
+    private fun runOpenSearch(keywords: String, kind: SearchKind = SearchKind.Song) {
+        if (!openKind(kind)) {
+            _ui.update {
+                it.copy(phase = SearchPhase.Results, kind = kind, searchError = t("未支持"), suggesting = false)
+            }
+            return
+        }
+        suggestJob?.cancel()
+        searchHistory.record(keywords)
+        lastSearchedQuery = keywords
+        _ui.update {
+            it.copy(
+                phase = SearchPhase.Results,
+                kind = kind,
+                suggesting = false,
+                searchError = null,
+                loadingKinds = setOf(kind),
+            ).cleared(kind)
+        }
+        viewModelScope.launch {
+            val page = fetchOpen(keywords, kind, 1)
+            pageCache[keywords to kind] = page
+            _ui.update {
+                val error = if (page.isEmpty(kind)) it.searchError else null
+                it.copy(loadingKinds = emptySet(), searchError = error).withPage(kind, page)
+            }
+        }
+    }
+
+    private fun openKind(kind: SearchKind): Boolean {
+        val platform = platformStore.current
+        return when (kind) {
+            SearchKind.Song, SearchKind.Playlist ->
+                platform == MusicPlatform.KUWO || platform == MusicPlatform.KUGOU || platform == MusicPlatform.QQ
+            SearchKind.Album -> platform == MusicPlatform.KUWO || platform == MusicPlatform.KUGOU
+            SearchKind.Artist -> platform == MusicPlatform.KUGOU
+            else -> false
+        }
+    }
+
+    private suspend fun fetchOpen(keywords: String, kind: SearchKind, page: Int): SearchKindPage {
+        val platform = platformStore.current
+        return runCatching {
+            when (kind) {
+                SearchKind.Song -> {
+                    val tracks = openCatalog.searchSongs(platform, keywords, page)
+                    SearchKindPage(tracks = tracks, hasMore = tracks.size >= SearchPageSize, nextOffset = page + 1)
+                }
+                SearchKind.Playlist -> {
+                    val playlists = openCatalog.searchPlaylists(platform, keywords, page)
+                    SearchKindPage(playlists = playlists, hasMore = playlists.size >= SearchPageSize, nextOffset = page + 1)
+                }
+                SearchKind.Album -> {
+                    val albums = openCatalog.searchAlbums(platform, keywords, page)
+                    SearchKindPage(albums = albums, hasMore = albums.size >= SearchPageSize, nextOffset = page + 1)
+                }
+                SearchKind.Artist -> {
+                    val artists = openCatalog.searchArtists(platform, keywords, page)
+                    SearchKindPage(artists = artists, hasMore = artists.size >= SearchPageSize, nextOffset = page + 1)
+                }
+                else -> SearchKindPage()
+            }
+        }.getOrElse {
+            _ui.update { state ->
+                state.copy(loadingKinds = emptySet(), searchError = it.message ?: t("加载失败"))
+            }
+            SearchKindPage()
+        }
     }
 
     fun setKind(kind: SearchKind) {
@@ -325,6 +416,14 @@ class SearchViewModel(
         kind: SearchKind,
         recordHistory: Boolean = true,
     ) {
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            if (openKind(kind)) {
+                runOpenSearch(keywords, kind)
+            } else {
+                _ui.update { it.copy(phase = SearchPhase.Results, kind = kind, searchError = t("未支持"), suggesting = false) }
+            }
+            return
+        }
         suggestJob?.cancel()
         val queryChanged = keywords != lastSearchedQuery
         lastSearchedQuery = keywords
@@ -358,6 +457,23 @@ class SearchViewModel(
     }
 
     private suspend fun loadSuggest(keywords: String) {
+        val platform = platformStore.current
+        if (platform != MusicPlatform.NETEASE) {
+            _ui.update { it.copy(suggesting = true) }
+            val words = if (platform == MusicPlatform.KUWO) {
+                runCatching { openCatalog.suggest(platform, keywords) }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
+            if (_ui.value.phase != SearchPhase.Suggest || _ui.value.query.trim() != keywords) return
+            _ui.update {
+                it.copy(
+                    suggesting = false,
+                    suggestions = words.filter { word -> !word.equals(keywords, ignoreCase = true) },
+                )
+            }
+            return
+        }
         val cookie = sessionRepository.session.value?.cookie.orEmpty()
         _ui.update { it.copy(suggesting = true) }
         try {
@@ -451,6 +567,23 @@ class SearchViewModel(
     }
 
     private suspend fun searchMore(keywords: String, kind: SearchKind, current: SearchKindPage) {
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            _ui.update { it.copy(loadingMoreKinds = it.loadingMoreKinds + kind) }
+            val incoming = fetchOpen(keywords, kind, current.nextOffset.coerceAtLeast(2))
+            if (incoming.isEmpty(kind)) {
+                val done = current.copy(hasMore = false)
+                pageCache[keywords to kind] = done
+                _ui.update { it.copy(loadingMoreKinds = it.loadingMoreKinds - kind).withPage(kind, done) }
+                return
+            }
+            val merged = current.append(incoming, kind).copy(
+                hasMore = incoming.size(kind) >= SearchPageSize,
+                nextOffset = current.nextOffset.coerceAtLeast(2) + 1,
+            )
+            pageCache[keywords to kind] = merged
+            _ui.update { it.copy(loadingMoreKinds = it.loadingMoreKinds - kind).withPage(kind, merged) }
+            return
+        }
         val cookie = sessionRepository.session.value?.cookie.orEmpty()
         _ui.update { it.copy(loadingMoreKinds = it.loadingMoreKinds + kind) }
         try {

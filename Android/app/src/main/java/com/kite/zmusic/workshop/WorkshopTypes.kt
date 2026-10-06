@@ -20,7 +20,19 @@ data class WorkshopPluginCard(
     val updatedAt: Long,
     val engineMin: Int,
     val engineMax: Int?,
+    val category: String = "",
+    val versionLabel: String = "",
 )
+
+object WorkshopCategories {
+    const val ALL = ""
+    const val BETTERNCM = "betterncm"
+
+    fun matches(card: WorkshopPluginCard, category: String): Boolean {
+        if (category.isEmpty()) return true
+        return card.category.equals(category, ignoreCase = true)
+    }
+}
 
 data class WorkshopPluginDetail(
     val card: WorkshopPluginCard,

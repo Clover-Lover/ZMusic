@@ -1,7 +1,16 @@
 package com.kite.zmusic.plugin
 
+import android.os.Handler
+import android.os.Looper
 import com.kite.zmusic.BuildConfig
+import com.kite.zmusic.data.ChromeGlassMode
+import com.kite.zmusic.data.ChromeWallpaperSurface
+import com.kite.zmusic.ui.theme.TextTheme
+import com.kite.zmusic.ui.theme.TextThemeKeys
+import com.kite.zmusic.ui.theme.parseThemeColor
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.Semaphore
@@ -34,6 +43,9 @@ class PluginEngine(
     private val showNotice: (message: String, coverUrl: String?) -> Unit = { _, _ -> },
     private val bundledDebugProbe: () -> File? = { null },
     host: PluginHostBindings = PluginHostBindings(),
+    private val bncmBridge: BetterNcmAndroidBridge? = null,
+    private val bncmEapi: (String) -> String = { """{"code":502,"msg":"unsupported"}""" },
+    private val bncmLibText: (String) -> String? = { null },
 ) {
     constructor(
         filesDir: File,
@@ -43,6 +55,9 @@ class PluginEngine(
         showNotice: (message: String, coverUrl: String?) -> Unit = { _, _ -> },
         bundledDebugProbe: () -> File? = { null },
         host: PluginHostBindings = PluginHostBindings(),
+        bncmBridge: BetterNcmAndroidBridge? = null,
+        bncmEapi: (String) -> String = { """{"code":502,"msg":"unsupported"}""" },
+        bncmLibText: (String) -> String? = { null },
     ) : this(
         filesDir = filesDir,
         debugEnabled = { debugStore.current() },
@@ -51,6 +66,9 @@ class PluginEngine(
         showNotice = showNotice,
         bundledDebugProbe = bundledDebugProbe,
         host = host,
+        bncmBridge = bncmBridge,
+        bncmEapi = bncmEapi,
+        bncmLibText = bncmLibText,
     )
     private val paths = PluginPaths.fromFilesDir(filesDir)
     private val registryStore = PluginRegistryStore(paths.registryFile)
@@ -384,6 +402,139 @@ class PluginEngine(
         }
     }
 
+    /** 安装 BetterNCM `.plugin`。新装默认不启用，打开开关后才加载。 */
+    fun installBetterNcm(pkg: File): PluginRegisterResult {
+        var stopped: PluginSession? = null
+        val result = synchronized(lock) {
+            paths.ensure()
+            val staging = File(paths.staging, "bncm-${System.nanoTime()}")
+            staging.deleteRecursively()
+            when (val unpacked = BetterNcmPackage.unpack(pkg, staging)) {
+                is BetterNcmUnpack.Invalid -> {
+                    staging.deleteRecursively()
+                    PluginRegisterResult.Skipped(unpacked.reason)
+                }
+                is BetterNcmUnpack.Ok -> {
+                    val manifest = unpacked.manifest
+                    val existing = records.find { it.id == manifest.slug }
+                    val dest = paths.installedDir(manifest.slug)
+                    stopped = sessions.remove(manifest.slug)
+                    dest.deleteRecursively()
+                    if (!staging.renameTo(dest)) {
+                        staging.copyRecursively(dest, overwrite = true)
+                        staging.deleteRecursively()
+                    }
+                    val rec = PluginRecord(
+                        id = manifest.slug,
+                        name = manifest.name,
+                        version = BetterNcmManifests.versionCode(manifest.version),
+                        entry = unpacked.entry,
+                        engineMin = 1,
+                        engineMax = null,
+                        enabled = existing?.enabled ?: true,
+                        quarantined = false,
+                    )
+                    records = records.filter { it.id != rec.id } + rec
+                    persistLocked()
+                    bumpModulesRevisionLocked()
+                    if (started && rec.enabled && !offline && sessions[rec.id] == null) {
+                        launchSessionLocked(rec, null)
+                    }
+                    if (existing == null) {
+                        PluginRegisterResult.Installed(rec)
+                    } else {
+                        PluginRegisterResult.Replaced(rec)
+                    }
+                }
+            }
+        }
+        stopped?.stop()
+        return result
+    }
+
+    private val themeBackdropUrl = ConcurrentHashMap<String, String>()
+
+    private fun stageThemeLook(pluginId: String, look: BetterNcmLook) {
+        val image = look.imageUrl?.trim().orEmpty()
+        if (image.startsWith("https://") || image.startsWith("http://")) {
+            stageThemeBackdrop(pluginId, image)
+        } else if (look.frosted) {
+            Handler(Looper.getMainLooper()).post {
+                PluginLookPresent.set(
+                    pluginId,
+                    PluginLookRegions.CHROME_WALLPAPER,
+                    LookPatch.Wallpaper(
+                        LookWallpaperPartial(itemChrome = ChromeGlassMode.Frosted),
+                    ),
+                )
+            }
+        }
+        val accent = look.accent?.let { parseThemeColor(it) } ?: return
+        Handler(Looper.getMainLooper()).post {
+            TextTheme.setOverlay(
+                pluginId,
+                mapOf(
+                    TextThemeKeys.ACCENT to accent,
+                    TextThemeKeys.FACE_ACCENT to accent,
+                ),
+            )
+        }
+    }
+
+    private fun stageThemeBackdrop(pluginId: String, url: String) {
+        if (!url.startsWith("https://") && !url.startsWith("http://")) return
+        if (themeBackdropUrl.put(pluginId, url) == url) return
+        Thread({
+            val dest = File(File(paths.betterncmDir, pluginId), "theme-backdrop.img")
+            if (!saveThemeBackdrop(url, dest)) return@Thread
+            val frame = LookPackFrame(pack = pluginId, path = dest.absolutePath, scale = 1.1f)
+            val patch = LookPatch.Wallpaper(
+                LookWallpaperPartial(
+                    enabled = true,
+                    itemChrome = ChromeGlassMode.Frosted,
+                    coverage = ChromeWallpaperSurface.entries.toSet(),
+                    genericPortrait = frame,
+                    genericLandscape = frame,
+                ),
+            )
+            Handler(Looper.getMainLooper()).post {
+                PluginLookPresent.set(pluginId, PluginLookRegions.CHROME_WALLPAPER, patch)
+            }
+        }, "zmusic-bncm-bg").start()
+    }
+
+    private fun clearThemeBackdrop(pluginId: String) {
+        themeBackdropUrl.remove(pluginId)
+        PluginLookPresent.clear(pluginId, PluginLookRegions.CHROME_WALLPAPER)
+        TextTheme.clearIfOwner(pluginId)
+    }
+
+    private fun saveThemeBackdrop(url: String, dest: File): Boolean {
+        return runCatching {
+            dest.parentFile?.mkdirs()
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            conn.connectTimeout = 8_000
+            conn.readTimeout = 20_000
+            conn.setRequestProperty("User-Agent", "ZMusic")
+            conn.inputStream.use { input ->
+                dest.outputStream().use { out ->
+                    val buf = ByteArray(16 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        total += n
+                        if (total > 8L * 1024 * 1024) error("backdrop too large")
+                        out.write(buf, 0, n)
+                    }
+                }
+            }
+            conn.disconnect()
+            dest.isFile && dest.length() > 0L
+        }.getOrDefault(false)
+    }
+
     fun setEnabled(id: String, enabled: Boolean) {
         requireDebug()
         setModuleEnabled(id, enabled)
@@ -400,6 +551,7 @@ class PluginEngine(
             persistLocked()
             bumpModulesRevisionLocked()
             if (!started) return
+            if (!enabled) clearThemeBackdrop(id)
             if (enabled) {
                 if (!offline &&
                     next.canRun(PluginEngineVersion.number) &&
@@ -439,6 +591,7 @@ class PluginEngine(
             kvStore.erase(id)
             ui.dropPlugin(id)
             http?.cancel(id)
+            clearThemeBackdrop(id)
             session
         }
         running?.stop()
@@ -480,6 +633,23 @@ class PluginEngine(
         refreshSplashLocked()
     }
 
+    fun restartPlugin(id: String): Boolean {
+        if (id == PluginDebugProbe.ID) return false
+        val rec = synchronized(lock) {
+            records.find { it.id == id && it.canRun(PluginEngineVersion.number) }
+        } ?: return false
+        Thread({
+            val running = synchronized(lock) { sessions.remove(id) }
+            running?.stop()
+            synchronized(lock) {
+                if (started && !offline && sessions[id] == null) {
+                    launchSessionLocked(rec, null)
+                }
+            }
+        }, "zmusic-bncm-reload").start()
+        return true
+    }
+
     private fun launchSessionLocked(rec: PluginRecord, gate: Semaphore?) {
         val session = PluginSession(
             record = rec,
@@ -496,6 +666,14 @@ class PluginEngine(
             device = device,
             store = kvStore,
             ui = ui,
+            betterncmData = File(paths.betterncmDir, rec.id),
+            bncmOpenUrl = { url -> bncmBridge?.openUrl(url) == true },
+            bncmOpenFile = { filter, initialDir -> bncmBridge?.openFile(filter, initialDir).orEmpty() },
+            bncmReload = { restartPlugin(rec.id) },
+            bncmMirror = { script -> bncmBridge?.mirror(rec.id, script) },
+            bncmEapi = bncmEapi,
+            bncmLook = { look -> stageThemeLook(rec.id, look) },
+            bncmLibText = bncmLibText,
             faultBusy = { faultCenter.current.value != null },
             broadcastHook = { name, args -> broadcastHook(name, args, wait = false) },
             timerScheduler = timerScheduler,
@@ -527,6 +705,7 @@ class PluginEngine(
                 ui.dropPlugin(id)
                 http?.cancel(id)
                 device.cancel(id)
+                bncmBridge?.release(id)
             },
         )
         ui.bind(rec.id) { event -> session.deliverUiEvent(event) }

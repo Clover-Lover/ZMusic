@@ -30,7 +30,6 @@ import com.kite.zmusic.ui.player.ShareSongPoster
 import com.kite.zmusic.plugin.PluginSurfaces
 import com.kite.zmusic.plugin.PluginUiTarget
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -118,7 +117,7 @@ internal fun TrackOverflowMenu(
                 contentKey = "share-track-${current.id}",
                 onDismiss = onDismiss,
                 onPick = { target ->
-                    shareTrackLikePlayer(context, app, current, target, scope)
+                    shareTrackLikePlayer(context, app, current, target)
                     onDismiss()
                 },
             )
@@ -260,13 +259,12 @@ internal fun TrackOverflowMenu(
     }
 }
 
-/** 与播放页竖屏分享同一套目标与发送逻辑。 */
+/** 与播放页竖屏分享同一套目标与发送逻辑。走应用作用域，避免关掉菜单时把生成分享图取消掉。 */
 private fun shareTrackLikePlayer(
     context: Context,
     app: ZMusicApplication,
     track: TrackRow,
     target: NcmShareTarget,
-    scope: CoroutineScope,
 ) {
     if (target == NcmShareTarget.CopyLink) {
         when (NcmShare.send(context, track, target)) {
@@ -280,7 +278,7 @@ private fun shareTrackLikePlayer(
         context.showIslandNotice(t("当前歌曲无法分享"))
         return
     }
-    scope.launch {
+    app.appScope.launch {
         context.showIslandNotice(t("正在生成分享图"))
         val uri = ShareSongPoster.prepareShareUri(app, track)
         if (uri == null) {

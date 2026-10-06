@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kite.zmusic.ZMusicApplication
+import com.kite.zmusic.data.platform.MusicPlatform
 import com.kite.zmusic.plugin.PluginUiTree
 import com.kite.zmusic.ui.icons.ZIcons
 import com.kite.zmusic.ui.main.MainContentPadTop
@@ -68,32 +69,36 @@ fun FeaturesScreen(
     val pluginCards = remember(pluginSlots) {
         pluginSlots.filter { it.slot == PluginUiTree.SLOT_FEATURES }
     }
+    val platform by app.musicPlatformStore.currentFlow.collectAsStateWithLifecycle()
+    val netease = platform == MusicPlatform.NETEASE
     val landscape =
         LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val padH = mainContentPadH(landscape)
-    val modes = remember { builtInListenModes() }
+    val modes = remember(netease) { if (netease) builtInListenModes() else emptyList() }
     val enterListenMode: (ListenMode) -> Unit = { mode ->
         when (mode.id) {
             ListenModeId.Fm -> onStartFm()
             ListenModeId.Heart -> onStartIntelligence()
         }
     }
-    val tools = listOf(
-        FeatureItem(t("每日推荐"), t("今天的三十首"), MainPalette.Accent, ZIcons.Daily) {
-            onOpenOverlay(MainOverlay.Daily)
-        },
-        FeatureItem(t("年度报告"), t("把听歌这一年压成一张片子"), Color(0xFFC45C7A), ZIcons.AnnualReport) {
-            val session = app.sessionRepository.session.value
-            if (session == null || session.isGuest) {
-                context.showIslandNotice(t("登录后查看年度报告"))
-            } else {
-                onOpenOverlay(MainOverlay.AnnualReport)
-            }
-        },
-        FeatureItem(t("排行榜"), t("官方与热歌榜"), Color(0xFFFF9500), ZIcons.Charts) {
-            onOpenOverlay(MainOverlay.Charts)
-        },
-        FeatureItem(
+    val tools = buildList {
+        if (netease) {
+            add(FeatureItem(t("每日推荐"), t("今天的三十首"), MainPalette.Accent, ZIcons.Daily) {
+                onOpenOverlay(MainOverlay.Daily)
+            })
+            add(FeatureItem(t("年度报告"), t("把听歌这一年压成一张片子"), Color(0xFFC45C7A), ZIcons.AnnualReport) {
+                val session = app.sessionRepository.session.value
+                if (session == null || session.isGuest) {
+                    context.showIslandNotice(t("登录后查看年度报告"))
+                } else {
+                    onOpenOverlay(MainOverlay.AnnualReport)
+                }
+            })
+            add(FeatureItem(t("排行榜"), t("官方与热歌榜"), Color(0xFFFF9500), ZIcons.Charts) {
+                onOpenOverlay(MainOverlay.Charts)
+            })
+        }
+        add(FeatureItem(
             title = t("缓存的歌曲"),
             subtitle = t("本机已下载"),
             color = Color(0xFF30D158),
@@ -101,11 +106,13 @@ fun FeaturesScreen(
             availableOffline = true,
         ) {
             onOpenOverlay(MainOverlay.CachedSongs)
-        },
-        FeatureItem(t("音乐云盘"), t("上传的歌曲"), Color(0xFF0A84FF), ZIcons.Cloud) {
-            onOpenOverlay(MainOverlay.CloudDisk)
-        },
-        FeatureItem(
+        })
+        if (netease) {
+            add(FeatureItem(t("音乐云盘"), t("上传的歌曲"), Color(0xFF0A84FF), ZIcons.Cloud) {
+                onOpenOverlay(MainOverlay.CloudDisk)
+            })
+        }
+        add(FeatureItem(
             title = t("创意工坊"),
             subtitle = t("社区插件与本机模块"),
             color = Color(0xFF5E5CE6),
@@ -113,8 +120,8 @@ fun FeaturesScreen(
             availableOffline = true,
         ) {
             onOpenOverlay(MainOverlay.CreativeWorkshop)
-        },
-    )
+        })
+    }
 
     Column(
         modifier
@@ -136,18 +143,20 @@ fun FeaturesScreen(
                 .padding(bottom = contentBottomInset + 12.dp),
         ) {
             Spacer(Modifier.height(if (landscape) 8.dp else 14.dp))
-            FeatureSectionTitle(t("听歌模式"))
-            Spacer(Modifier.height(10.dp))
-            FeatureCardGrid(
-                offline = offline,
-                onOfflineBlocked = { context.showIslandNotice(t("当前无网络")) },
-                items = modes.map { mode ->
-                    FeatureItem(mode.title, mode.caption, mode.accent, mode.icon) {
-                        enterListenMode(mode)
-                    }
-                },
-            )
-            Spacer(Modifier.height(if (landscape) 22.dp else 26.dp))
+            if (modes.isNotEmpty()) {
+                FeatureSectionTitle(t("听歌模式"))
+                Spacer(Modifier.height(10.dp))
+                FeatureCardGrid(
+                    offline = offline,
+                    onOfflineBlocked = { context.showIslandNotice(t("当前无网络")) },
+                    items = modes.map { mode ->
+                        FeatureItem(mode.title, mode.caption, mode.accent, mode.icon) {
+                            enterListenMode(mode)
+                        }
+                    },
+                )
+                Spacer(Modifier.height(if (landscape) 22.dp else 26.dp))
+            }
             FeatureSectionTitle(t("功能"))
             Spacer(Modifier.height(10.dp))
             FeatureCardGrid(

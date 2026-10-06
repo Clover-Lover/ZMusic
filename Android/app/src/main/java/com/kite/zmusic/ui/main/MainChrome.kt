@@ -261,7 +261,8 @@ internal fun Modifier.chromeGlassSurface(
 }
 
 /**
- * 铺了自定义背景时，把纯色条目改成磨砂 / 液态；数值跟 [LocalChromeGlassStyle]。
+ * 铺了自定义背景时，把纯色条目改成磨砂 / 液态。
+ * 模糊和折射用 [LocalChromeGlassStyle] 里该模式自己的一份，不借用当前模式的数值。
  * 没铺图或选纯色时仍是 [MainPalette.Surface]。
  */
 internal fun Modifier.wallpaperItemChrome(

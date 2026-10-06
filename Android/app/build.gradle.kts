@@ -54,6 +54,8 @@ val uapiProBaseUrl: String =
     localProperties.getProperty("uapipro.base.url")?.trim()?.trimEnd('/').orEmpty()
 val uapiProApiKey: String =
     localProperties.getProperty("uapipro.api.key")?.trim().orEmpty()
+val betterNcmMarketBaseUrl: String =
+    localProperties.getProperty("betterncm.market.base.url")?.trim().orEmpty()
 
 if (ncmApiBaseUrl.isEmpty() || communityServerHost.isEmpty()) {
     logger.lifecycle(
@@ -92,6 +94,7 @@ android {
         buildConfigField("int", "COMMUNITY_SERVER_PORT", "$communityServerPort")
         buildConfigField("String", "UAPIPRO_BASE_URL", "\"${escapeBc(uapiProBaseUrl)}\"")
         buildConfigField("String", "UAPIPRO_API_KEY", "\"${escapeBc(uapiProApiKey)}\"")
+        buildConfigField("String", "BETTERNCM_MARKET_BASE_URL", "\"${escapeBc(betterNcmMarketBaseUrl)}\"")
     }
 
     signingConfigs {

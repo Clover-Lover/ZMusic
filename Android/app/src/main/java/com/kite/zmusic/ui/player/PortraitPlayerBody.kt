@@ -553,6 +553,7 @@ internal fun PortraitPlayerBody(
                                     fullCover = vinylFullCover,
                                     centerRadiusFrac = vinylCenterRadiusFrac,
                                     outerScale = vinylOuterScale,
+                                    showOuterPlate = displayPrefs.vinylOuterEnabled,
                                     plateColors = displayPrefs.vinylPlateColors(),
                                     gestureDamping = displayPrefs.vinylGestureDamping,
                                     spinPeriodMs = displayPrefs.vinylSpinPeriodMs(),

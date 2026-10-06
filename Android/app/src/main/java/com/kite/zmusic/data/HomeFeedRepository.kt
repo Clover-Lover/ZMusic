@@ -14,6 +14,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import com.kite.zmusic.data.platform.HomeBlock
+import com.kite.zmusic.data.platform.MusicPlatform
+import com.kite.zmusic.data.platform.MusicPlatformStore
+import com.kite.zmusic.data.platform.OpenMusicCatalog
+import com.kite.zmusic.data.platform.QishuiCatalog
 import com.kite.zmusic.i18n.t
 
 data class HomeFeed(
@@ -23,6 +28,7 @@ data class HomeFeed(
     val dailyPlaylists: List<RecommendPlaylistCard> = emptyList(),
     val newSongs: List<TrackRow> = emptyList(),
     val mvs: List<RecommendMvCard> = emptyList(),
+    val unavailable: Set<HomeBlock> = emptySet(),
     val error: String? = null,
     val loading: Boolean = false,
     val refreshing: Boolean = false,
@@ -46,6 +52,9 @@ class HomeFeedRepository(
     private val sessionRepository: SessionRepository,
     private val userClient: NcmUserClient,
     private val fmModeStore: PersonalFmModeStore,
+    private val platformStore: MusicPlatformStore,
+    private val qishui: QishuiCatalog,
+    private val openCatalog: OpenMusicCatalog,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutex = Mutex()
@@ -99,6 +108,14 @@ class HomeFeedRepository(
         mutex.withLock {
             if (!force && _feed.value.isWarm) {
                 _feed.update { it.copy(refreshing = false) }
+                return
+            }
+            if (platformStore.current == MusicPlatform.QISHUI) {
+                loadQishui(force)
+                return
+            }
+            if (platformStore.current != MusicPlatform.NETEASE) {
+                loadOpen(platformStore.current, force)
                 return
             }
             val session = sessionRepository.session.value
@@ -313,7 +330,84 @@ class HomeFeedRepository(
         return out to start + take
     }
 
+    private suspend fun loadOpen(platform: MusicPlatform, force: Boolean) {
+        if (!force && _feed.value.playlists.isNotEmpty()) {
+            _feed.update { it.copy(loading = false, refreshing = false) }
+            return
+        }
+        _feed.update {
+            it.copy(
+                loading = !it.isWarm,
+                refreshing = it.isWarm,
+                error = null,
+                unavailable = OpenMusicCatalog.homeUnavailable,
+            )
+        }
+        try {
+            val playlists = openCatalog.homePlaylists(platform)
+            _feed.value = HomeFeed(
+                playlists = playlists.take(9),
+                unavailable = OpenMusicCatalog.homeUnavailable,
+                loading = false,
+                refreshing = false,
+                error = if (playlists.isEmpty()) t("暂时没有内容，点这里重试") else null,
+            )
+        } catch (e: CancellationException) {
+            _feed.update { it.copy(loading = false, refreshing = false) }
+            throw e
+        } catch (e: Exception) {
+            _feed.update {
+                it.copy(
+                    loading = false,
+                    refreshing = false,
+                    unavailable = OpenMusicCatalog.homeUnavailable,
+                    error = e.message ?: t("加载失败"),
+                )
+            }
+        }
+    }
+
+    private suspend fun loadQishui(force: Boolean) {
+        if (!force && _feed.value.playlists.isNotEmpty()) {
+            _feed.update { it.copy(loading = false, refreshing = false) }
+            return
+        }
+        _feed.update {
+            it.copy(
+                loading = !it.isWarm,
+                refreshing = it.isWarm,
+                error = null,
+                unavailable = QishuiCatalog.homeUnavailable,
+            )
+        }
+        try {
+            val playlists = qishui.recommendPlaylists()
+            _feed.value = HomeFeed(
+                playlists = playlists.take(9),
+                unavailable = QishuiCatalog.homeUnavailable,
+                loading = false,
+                refreshing = false,
+                error = if (playlists.isEmpty()) t("暂时没有内容，点这里重试") else null,
+            )
+        } catch (e: CancellationException) {
+            _feed.update { it.copy(loading = false, refreshing = false) }
+            throw e
+        } catch (e: Exception) {
+            _feed.update {
+                it.copy(
+                    loading = false,
+                    refreshing = false,
+                    unavailable = QishuiCatalog.homeUnavailable,
+                    error = e.message ?: t("加载失败"),
+                )
+            }
+        }
+    }
+
     suspend fun loadPersonalFm(): Pair<List<TrackRow>, String?> {
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            return emptyList<TrackRow>() to t("未支持")
+        }
         val cookie = sessionRepository.session.value?.cookie.orEmpty()
         if (cookie.isBlank()) return emptyList<TrackRow>() to t("请先登录")
         return try {

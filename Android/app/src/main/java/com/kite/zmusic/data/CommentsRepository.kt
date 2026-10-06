@@ -1,5 +1,8 @@
 package com.kite.zmusic.data
 
+import com.kite.zmusic.data.platform.MusicPlatform
+import com.kite.zmusic.data.platform.MusicPlatformStore
+import com.kite.zmusic.data.platform.OpenMusicCatalog
 import com.kite.zmusic.i18n.t
 
 data class CommentSelfProfile(
@@ -18,8 +21,14 @@ data class CommentPostResult(
 class CommentsRepository(
     private val userClient: NcmUserClient,
     private val authClient: NcmAuthClient,
+    private val platformStore: MusicPlatformStore,
+    private val openCatalog: OpenMusicCatalog,
+    private val playingTrack: () -> TrackRow?,
 ) {
     suspend fun selfProfile(cookie: String): CommentSelfProfile {
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            return CommentSelfProfile(0L, t("我"), null)
+        }
         val status = authClient.loginStatus(cookie)
         val uid = NcmJson.userIdFromLoginStatus(status) ?: 0L
         val nickname = NcmJson.displayLabelFromLogin(status)?.ifBlank { null } ?: t("我")
@@ -38,6 +47,16 @@ class CommentsRepository(
         sortType: Int,
         cursor: String?,
     ): SongCommentPage {
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            val track = playingTrack()?.takeIf { it.id == songId } ?: TrackRow(
+                id = songId,
+                name = "",
+                artists = "",
+                album = null,
+                durationMs = 0L,
+            )
+            return openCatalog.comments(platformStore.current, track, pageNo.coerceAtLeast(1), pageSize)
+        }
         val json = userClient.commentNew(
             songId = songId,
             cookie = cookie,
@@ -73,6 +92,9 @@ class CommentsRepository(
         cookie: String,
         replyCommentId: Long?,
     ): CommentPostResult {
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            return CommentPostResult(ok = false, comment = null, message = t("未支持"))
+        }
         val json = userClient.commentPost(
             songId = songId,
             content = content,
@@ -93,6 +115,7 @@ class CommentsRepository(
         like: Boolean,
         cookie: String,
     ): Boolean {
+        if (platformStore.current != MusicPlatform.NETEASE) return false
         val json = userClient.commentLike(
             songId = songId,
             commentId = commentId,

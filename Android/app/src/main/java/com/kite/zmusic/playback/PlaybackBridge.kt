@@ -21,6 +21,10 @@ import com.kite.zmusic.data.LyricRepository
 import com.kite.zmusic.data.NcmUserClient
 import com.kite.zmusic.data.SessionRepository
 import com.kite.zmusic.data.TrackRow
+import com.kite.zmusic.data.platform.MusicPlatform
+import com.kite.zmusic.data.platform.MusicPlatformStore
+import com.kite.zmusic.data.platform.OpenMusicCatalog
+import com.kite.zmusic.data.platform.QishuiCatalog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -45,10 +49,13 @@ class PlaybackBridge(
     context: Context,
     private val sessionRepository: SessionRepository,
     userClient: NcmUserClient,
+    platformStore: MusicPlatformStore,
+    qishui: QishuiCatalog,
+    openCatalog: OpenMusicCatalog,
 ) {
     private val appContext = context.applicationContext
     private val stateStore = PlaybackStateStore(appContext)
-    val lyricRepository = LyricRepository(appContext, userClient)
+    val lyricRepository = LyricRepository(appContext, userClient, platformStore, qishui, openCatalog)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -192,7 +199,8 @@ class PlaybackBridge(
 
     /** 当前曲目无歌词时异步补齐（磁盘优先，不依赖是否正在播放）。 */
     private fun ensureLyricsForCurrentTrack() {
-        val trackId = _ui.value.currentTrack?.id ?: return
+        val track = _ui.value.currentTrack ?: return
+        val trackId = track.id
         lyricRepository.peekPack(trackId)?.takeIf { it.translationResolved }?.let { cached ->
             if (cached.original.isNotEmpty()) {
                 _ui.value = _ui.value.withLyricPack(cached)
@@ -203,7 +211,7 @@ class PlaybackBridge(
         lyricJob?.cancel()
         lyricJob = scope.launch {
             val cookie = sessionRepository.session.value?.cookie.orEmpty()
-            val pack = lyricRepository.loadBestEffort(trackId, cookie)
+            val pack = lyricRepository.loadBestEffort(trackId, cookie, track)
             if (pack.original.isEmpty()) return@launch
             if (_ui.value.currentTrack?.id == trackId) {
                 _ui.value = _ui.value.withLyricPack(pack)
@@ -346,7 +354,26 @@ class PlaybackBridge(
         if (Looper.myLooper() == Looper.getMainLooper()) bind() else mainHandler.post(bind)
     }
 
+    @Volatile private var reportedVolume = 1f
+    @Volatile private var reportedRate = 1f
+
     fun seekTo(ms: Long) = runOnCoordinator { it.seekTo(ms) }
+
+    fun setUserVolume(level: Float) {
+        val v = level.coerceIn(0f, 1f)
+        reportedVolume = v
+        runOnCoordinator { it.setUserVolume(v) }
+    }
+
+    fun userVolume(): Float = reportedVolume
+
+    fun setPluginPlaybackRate(rate: Float) {
+        val v = rate.coerceIn(0.1f, 3f)
+        reportedRate = v
+        runOnCoordinator { it.setPluginPlaybackRate(v) }
+    }
+
+    fun pluginPlaybackRate(): Float = reportedRate
 
     fun skipNext() = runOnCoordinator { it.skipNext() }
 

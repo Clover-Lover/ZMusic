@@ -842,7 +842,7 @@ private fun ItemChromePicker(
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = t("只在已铺背景的页面生效。模糊和折射跟「液态玻璃样式」。主页和功能页不改组件；个人页只改下面的歌单列表。"),
+            text = t("只在已铺背景的页面生效。模糊和折射用「液态玻璃样式」里该模式自己的数值。主页和功能页不改组件；个人页只改下面的歌单列表。"),
             style = TextStyle(color = MainPalette.Secondary, fontSize = 12.sp, lineHeight = 16.sp),
             modifier = Modifier.padding(horizontal = 4.dp),
         )

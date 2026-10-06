@@ -62,6 +62,8 @@ object PlayerDisplayPrefsCodec {
         if (p.activeHalo) flags = flags or (1 shl 7)
         if (p.lyricTapAutoPlay) flags = flags or (1 shl 8)
         if (p.keepScreenOn) flags = flags or (1 shl 9)
+        // 缺省位为 0：旧二维码没有这一位，导入后仍显示黑胶外层
+        if (!p.vinylOuterEnabled) flags = flags or (1 shl 10)
         out.writeInt(flags)
 
         out.writeFloat(p.fontScale)
@@ -149,6 +151,7 @@ object PlayerDisplayPrefsCodec {
             vinylFullCover = flag(3),
             vinylSizeScale = vinylSizeScale,
             vinylOuterScale = vinylOuterScale,
+            vinylOuterEnabled = !flag(10),
             vinylCenterRadiusFrac = vinylCenterRadiusFrac,
             vinylColorStyle = vinylColorStyle,
             vinylCustomBaseArgb = vinylCustomBaseArgb,
@@ -259,6 +262,7 @@ fun lerpPlayerDisplayPrefs(
         vinylFullCover = pick(from.vinylFullCover, to.vinylFullCover),
         vinylSizeScale = lf(from.vinylSizeScale, to.vinylSizeScale),
         vinylOuterScale = lf(from.vinylOuterScale, to.vinylOuterScale),
+        vinylOuterEnabled = pick(from.vinylOuterEnabled, to.vinylOuterEnabled),
         vinylCenterRadiusFrac = lf(from.vinylCenterRadiusFrac, to.vinylCenterRadiusFrac),
         vinylColorStyle = pick(from.vinylColorStyle, to.vinylColorStyle),
         vinylCustomBaseArgb = lerpArgb(from.vinylCustomBaseArgb, to.vinylCustomBaseArgb, u),
@@ -315,6 +319,7 @@ fun lerpPlayerDisplayPrefs(
         danmakuSpeed = lf(from.danmakuSpeed, to.danmakuSpeed),
         danmakuScale = lf(from.danmakuScale, to.danmakuScale),
         landscapePageType = pick(from.landscapePageType, to.landscapePageType),
+        dynamicCoverOffsetXDp = lf(from.dynamicCoverOffsetXDp, to.dynamicCoverOffsetXDp),
     )
 }
 

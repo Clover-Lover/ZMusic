@@ -17,3 +17,7 @@ community.server.port=80
 uapipro.base.url=https://uapis.cn/api/v1
 # API Key：在控制台申请后填入，勿提交仓库
 uapipro.api.key=
+
+# —— BetterNCM 插件市场根地址，建议保留末尾斜杠 ——
+# 运行期可在设置「BetterNCM」页覆盖。目录是该地址下的 plugins.json。
+betterncm.market.base.url=https://gitcode.net/qq_21551787/bncm-plugin-packed/-/raw/master/

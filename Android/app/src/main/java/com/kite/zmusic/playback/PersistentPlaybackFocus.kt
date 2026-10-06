@@ -56,8 +56,10 @@ internal class PersistentPlaybackFocus(
     private var volumeJob: Job? = null
     private var collectJob: Job? = null
     private var callbackRegistered = false
-    /** 彩蛋等叠层压低歌曲；非空时禁止其它路径把音量拉回 1。 */
+    /** 彩蛋等叠层压低歌曲；非空时盖过用户音量。 */
     private var overlayDuck: Float? = null
+    /** 插件或界面设下的音量。没有叠层时，焦点恢复回到这里，而不是固定的 1。 */
+    private var userVolume = 1f
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         onFocusChange(change)
@@ -188,7 +190,13 @@ internal class PersistentPlaybackFocus(
         player.volume = restVolume()
     }
 
-    private fun restVolume(): Float = overlayDuck ?: 1f
+    fun setUserVolume(level: Float) {
+        userVolume = level.coerceIn(0f, 1f)
+        if (volumeJob?.isActive == true) return
+        player.volume = restVolume()
+    }
+
+    private fun restVolume(): Float = overlayDuck ?: userVolume
 
     private fun applyPolicy(nextEnabled: Boolean) {
         enabled = nextEnabled

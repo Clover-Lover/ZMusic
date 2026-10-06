@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kite.zmusic.data.TrackRow
 import com.kite.zmusic.ui.common.PlayingEqualizer
+import com.kite.zmusic.ui.common.SongTitleLine
 import com.kite.zmusic.ui.common.UrlImage
 import com.kite.zmusic.ui.common.UrlImageCache
 import com.kite.zmusic.ui.common.hideSoftwareIme
@@ -505,15 +506,12 @@ private fun PortraitQueueTrackRow(
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                text = track.name,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(
-                    color = if (current) QueueAccent else QueueLabel,
-                    fontSize = 15.sp,
-                    fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium,
-                ),
+            SongTitleLine(
+                name = track.name,
+                vip = track.isVipSong,
+                color = if (current) QueueAccent else QueueLabel,
+                fontSize = 15.sp,
+                fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium,
             )
             Text(
                 text = track.artists.ifBlank { "—" },

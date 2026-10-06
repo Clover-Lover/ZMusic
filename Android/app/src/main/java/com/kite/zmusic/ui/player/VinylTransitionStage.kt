@@ -142,6 +142,8 @@ fun VinylTransitionStage(
      * 外圈黑胶倍率：仅缩放黑胶盘面（绕中心）；封面锁定在整体容器的 [VinylCoverFrac]。
      */
     outerScale: Float = 1f,
+    /** 黑胶外层：关闭后不画纹路盘面，封面改为实心圆。 */
+    showOuterPlate: Boolean = true,
     plateColors: VinylPlateColors = VinylPlateColors.Black,
     /**
      * 上一首入场起点：相对舞台中心，整盘完全离开左栏左缘所需的位移（px）。
@@ -868,6 +870,7 @@ fun VinylTransitionStage(
                         fullCover = fullCover,
                         centerRadiusFrac = centerRadiusFrac,
                         outerScale = outerScale,
+                        showOuterPlate = showOuterPlate,
                         plateColors = plateColors,
                         modifier = Modifier
                             .fillMaxSize()
@@ -901,6 +904,7 @@ fun VinylTransitionStage(
                     fullCover = fullCover,
                     centerRadiusFrac = centerRadiusFrac,
                     outerScale = outerScale,
+                    showOuterPlate = showOuterPlate,
                     plateColors = plateColors,
                     reportExpandCover = false,
                     modifier = Modifier
@@ -925,6 +929,7 @@ fun VinylTransitionStage(
                         fullCover = fullCover,
                         centerRadiusFrac = centerRadiusFrac,
                         outerScale = outerScale,
+                        showOuterPlate = showOuterPlate,
                         plateColors = plateColors,
                         modifier = Modifier
                             .fillMaxSize()
@@ -951,6 +956,7 @@ internal fun VinylDiscFace(
     fullCover: Boolean,
     centerRadiusFrac: Float,
     outerScale: Float,
+    showOuterPlate: Boolean = true,
     plateColors: VinylPlateColors,
     modifier: Modifier = Modifier,
     spinGen: Int = 0,
@@ -965,7 +971,7 @@ internal fun VinylDiscFace(
     /** 连转一周毫秒数；调速即时生效，不 snap 角度。 */
     spinPeriodMs: Int = PlayerDisplayPrefs.VINYL_SPIN_PERIOD_DEFAULT_MS,
 ) {
-    val coverTTarget = if (fullCover) 1f else 0f
+    val coverTTarget = if (fullCover || !showOuterPlate) 1f else 0f
     val coverTAnimated by animateFloatAsState(
         targetValue = coverTTarget,
         animationSpec = tween(
@@ -989,6 +995,16 @@ internal fun VinylDiscFace(
         label = "vinylOuterScale",
     )
     val outer = if (liveStyle) outerAnimated else outerTarget
+    val plateTarget = if (showOuterPlate) 1f else 0f
+    val plateAnimated by animateFloatAsState(
+        targetValue = plateTarget,
+        animationSpec = tween(
+            durationMillis = 360,
+            easing = CubicBezierEasing(0.33f, 0f, 0.2f, 1f),
+        ),
+        label = "vinylOuterPlate",
+    )
+    val plateAlpha = if (liveStyle) plateAnimated else plateTarget
     // 中心挖孔相对整体容器（封面不随 outer 变），轴心在盘面本地坐标补偿 outer 缩放以保持绝对大小
     val coverHoleFrac = (centerRadiusFrac / VinylCoverFrac).coerceIn(0.08f, 0.95f) * (1f - coverT)
     val spindleFrac = (SpindleHoleFrac / outer.coerceAtLeast(0.01f))
@@ -1033,27 +1049,41 @@ internal fun VinylDiscFace(
     }
 
     val showVinylShadow = liveStyle
+    val plateShadow = (10f * plateAlpha).coerceIn(0f, 10f)
+    val coverShadow = (10f * (1f - plateAlpha)).coerceIn(0f, 10f)
     Box(
-        modifier
-            .graphicsLayer { clip = false }
-            .then(
-                if (showVinylShadow) {
-                    Modifier.shadow(
-                        elevation = 10.dp,
+        modifier.graphicsLayer { clip = false },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (showVinylShadow && coverShadow > 0.2f) {
+            Box(
+                Modifier
+                    .fillMaxSize(VinylCoverFrac)
+                    .shadow(
+                        elevation = coverShadow.dp,
                         shape = VinylCircleShape,
                         clip = false,
                         ambientColor = Color.Black.copy(alpha = 0.40f),
                         spotColor = Color.Black.copy(alpha = 0.28f),
-                    )
-                } else {
-                    Modifier
-                },
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
+                    ),
+            )
+        }
         Box(
             Modifier
                 .fillMaxSize()
+                .then(
+                    if (showVinylShadow && plateShadow > 0.2f) {
+                        Modifier.shadow(
+                            elevation = plateShadow.dp,
+                            shape = VinylCircleShape,
+                            clip = false,
+                            ambientColor = Color.Black.copy(alpha = 0.40f),
+                            spotColor = Color.Black.copy(alpha = 0.28f),
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
                 .graphicsLayer {
                     rotationZ = if (spinning) {
                         spinAnim.value
@@ -1065,18 +1095,21 @@ internal fun VinylDiscFace(
             contentAlignment = Alignment.Center,
         ) {
             // 黑胶盘：按 outer 绕中心缩放；外圈 <100% 只收黑圈，不收封面
-            VinylDiscPlate(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = outer
-                        scaleY = outer
-                        transformOrigin = TransformOrigin.Center
-                        clip = false
-                    },
-                spindleHoleFrac = spindleFrac,
-                colors = plateColors,
-            )
+            if (plateAlpha > 0.01f) {
+                VinylDiscPlate(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = outer
+                            scaleY = outer
+                            alpha = plateAlpha
+                            transformOrigin = TransformOrigin.Center
+                            clip = false
+                        },
+                    spindleHoleFrac = spindleFrac,
+                    colors = plateColors,
+                )
+            }
 
             // 封面：只跟整体容器走，不受 outer 影响
             Box(

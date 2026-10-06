@@ -67,11 +67,13 @@ data class LookGlassPartial(
         blur = next.blur ?: blur,
     )
 
-    fun applyTo(user: ChromeGlassStyle) = ChromeGlassStyle(
-        mode = mode ?: user.mode,
-        refraction = refraction ?: user.refraction,
-        blur = blur ?: user.blur,
-    )
+    fun applyTo(user: ChromeGlassStyle): ChromeGlassStyle {
+        val target = mode ?: user.mode
+        var next = user.copy(mode = target)
+        refraction?.let { next = next.withRefraction(it) }
+        blur?.let { next = next.withBlur(it) }
+        return next
+    }
 }
 
 data class LookWallpaperPartial(

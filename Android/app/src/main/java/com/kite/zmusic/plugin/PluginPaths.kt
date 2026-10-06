@@ -10,12 +10,14 @@ import java.io.File
  * - `sentinel/<id>` 入口执行期间的崩溃哨兵
  * - `fault-log/<id>` 弹窗用日志快照（进程崩溃后仍可读）
  * - `store/<id>.json` 插件持久键值
+ * - `betterncm/` BetterNCM 兼容层的数据目录（配置、localStorage）
  */
 internal class PluginPaths(val root: File) {
     val installed: File get() = File(root, "installed")
     val sentinelDir: File get() = File(root, "sentinel")
     val faultLogDir: File get() = File(root, "fault-log")
     val storeDir: File get() = File(root, "store")
+    val betterncmDir: File get() = File(root, "betterncm")
     val registryFile: File get() = File(root, "registry.json")
     val staging: File get() = File(root, "staging")
 
@@ -27,6 +29,7 @@ internal class PluginPaths(val root: File) {
         sentinelDir.mkdirs()
         faultLogDir.mkdirs()
         storeDir.mkdirs()
+        betterncmDir.mkdirs()
         staging.mkdirs()
     }
 

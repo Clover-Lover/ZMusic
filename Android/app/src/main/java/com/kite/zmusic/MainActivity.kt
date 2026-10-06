@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
@@ -21,6 +22,10 @@ import com.kite.zmusic.ui.theme.StartupTheme
 import com.kite.zmusic.ui.theme.ZMusicTheme
 
 class MainActivity : ComponentActivity() {
+    private val bncmFilePick = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        (application as ZMusicApplication).container.bncmBridge.onFilePicked(uri)
+    }
+
     override fun attachBaseContext(newBase: Context) {
         val language = LanguageStore.peek(newBase)
         I18n.setLanguage(language)
@@ -42,6 +47,7 @@ class MainActivity : ComponentActivity() {
             Log.d("ZMusic", "NCM API base URL: ${NcmApiConfig.baseUrl}")
         }
         enableEdgeToEdge()
+        (application as ZMusicApplication).container.bncmBridge.attach(this, bncmFilePick)
         // edge-to-edge 可能改系统栏，按用户外观再刷一次
         StartupTheme.applyUserAppearance(this, app.themeStore.current())
         consumeOpenPlayerIntent(intent)
@@ -57,6 +63,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        (application as ZMusicApplication).container.bncmBridge.detach()
+        super.onDestroy()
     }
 
     override fun onStart() {

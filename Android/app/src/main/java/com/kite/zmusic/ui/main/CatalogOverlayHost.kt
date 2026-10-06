@@ -92,6 +92,8 @@ fun CatalogOverlayHost(
             app.searchHistoryRepository,
             app.searchRepository,
             app.likedPlaylistRepository,
+            app.musicPlatformStore,
+            app.openMusicCatalog,
         ),
     )
     val keyboard = LocalSoftwareKeyboardController.current

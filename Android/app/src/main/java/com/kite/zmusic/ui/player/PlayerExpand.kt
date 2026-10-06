@@ -63,6 +63,7 @@ internal enum class PlayerExpandSlot {
 internal data class PlayerExpandLook(
     val plateColors: VinylPlateColors,
     val vinylOuterScale: Float,
+    val vinylOuterEnabled: Boolean,
     val vinylFullCover: Boolean,
     val vinylCenterRadiusFrac: Float,
     val titleFontMul: Float,
@@ -91,6 +92,7 @@ internal data class PlayerExpandLook(
                     PlayerDisplayPrefs.VINYL_OUTER_SCALE_MIN,
                     PlayerDisplayPrefs.VINYL_OUTER_SCALE_MAX,
                 ),
+                vinylOuterEnabled = prefs.vinylOuterEnabled,
                 vinylFullCover = prefs.vinylFullCover,
                 vinylCenterRadiusFrac = prefs.vinylCenterRadiusFrac.coerceIn(
                     PlayerDisplayPrefs.VINYL_CENTER_RADIUS_MIN,

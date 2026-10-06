@@ -16,6 +16,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.File
+import com.kite.zmusic.data.platform.MusicPlatform
+import com.kite.zmusic.data.platform.MusicPlatformStore
+import com.kite.zmusic.data.platform.OpenMusicCatalog
+import com.kite.zmusic.data.platform.QishuiCatalog
+import com.kite.zmusic.data.platform.QishuiSessionStore
 import com.kite.zmusic.i18n.t
 
 data class LibraryHomeSnapshot(
@@ -26,6 +31,7 @@ data class LibraryHomeSnapshot(
     val profile: UserProfileBrief? = null,
     val subcount: SubcountBrief? = null,
     val likedTrackCount: Int = 0,
+    val unavailable: List<String> = emptyList(),
 ) {
     val isWarm: Boolean get() = profile != null
 }
@@ -40,6 +46,10 @@ class LibraryHomeRepository(
     private val albumCollection: AlbumCollectionRepository,
     private val authClient: NcmAuthClient,
     private val userClient: NcmUserClient,
+    private val platformStore: MusicPlatformStore,
+    private val qishui: QishuiCatalog,
+    private val qishuiSession: QishuiSessionStore,
+    private val openCatalog: OpenMusicCatalog,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutex = Mutex()
@@ -48,6 +58,70 @@ class LibraryHomeRepository(
     private val _snapshot = MutableStateFlow(LibraryHomeSnapshot())
     val snapshot: StateFlow<LibraryHomeSnapshot> = _snapshot.asStateFlow()
     val albums: StateFlow<AlbumCollectionSnapshot> get() = albumCollection.snapshot
+
+    private fun platformTitle(platform: MusicPlatform): String = when (platform) {
+        MusicPlatform.NETEASE -> t("网易云音乐")
+        MusicPlatform.QISHUI -> t("汽水音乐")
+        MusicPlatform.KUWO -> t("酷我音乐")
+        MusicPlatform.KUGOU -> t("酷狗音乐")
+        MusicPlatform.QQ -> t("QQ音乐")
+    }
+
+    private fun loadGuestPlatform() {
+        playlistCollection.clear()
+        albumCollection.clear()
+        _snapshot.value = LibraryHomeSnapshot(
+            profile = UserProfileBrief(
+                userId = 0L,
+                nickname = platformTitle(platformStore.current),
+                avatarUrl = null,
+                signature = t("此平台不使用登录"),
+                level = null,
+                listenSongs = null,
+            ),
+            unavailable = OpenMusicCatalog.libraryUnavailable,
+        )
+    }
+
+    private suspend fun loadQishui() {
+        val cookie = qishuiSession.cookie
+        if (cookie.isNullOrBlank()) {
+            playlistCollection.clear()
+            albumCollection.clear()
+            _snapshot.value = LibraryHomeSnapshot(
+                error = t("请先登录"),
+                unavailable = QishuiCatalog.libraryUnavailable,
+            )
+            return
+        }
+        _snapshot.update {
+            it.copy(loading = it.profile == null, refreshing = it.profile != null, error = null)
+        }
+        try {
+            val profile = qishui.profile()
+            val playlists = qishui.myPlaylists()
+            if (profile != null) playlistCollection.setSelfUserId(profile.userId)
+            playlistCollection.replaceAll(playlists)
+            albumCollection.clear()
+            _snapshot.value = LibraryHomeSnapshot(
+                profile = profile,
+                unavailable = QishuiCatalog.libraryUnavailable,
+                error = if (profile == null) t("无法获取用户信息") else null,
+            )
+        } catch (e: CancellationException) {
+            _snapshot.update { it.copy(loading = false, refreshing = false) }
+            throw e
+        } catch (e: Exception) {
+            _snapshot.update {
+                it.copy(
+                    loading = false,
+                    refreshing = false,
+                    unavailable = QishuiCatalog.libraryUnavailable,
+                    error = e.message ?: t("加载失败"),
+                )
+            }
+        }
+    }
 
     fun peek(): LibraryHomeSnapshot = _snapshot.value
 
@@ -70,6 +144,14 @@ class LibraryHomeRepository(
 
     suspend fun refresh(force: Boolean = false) {
         mutex.withLock {
+            if (platformStore.current == MusicPlatform.QISHUI) {
+                loadQishui()
+                return
+            }
+            if (platformStore.current != MusicPlatform.NETEASE) {
+                loadGuestPlatform()
+                return
+            }
             val session = sessionRepository.session.value
             if (session == null) {
                 playlistCollection.clear()

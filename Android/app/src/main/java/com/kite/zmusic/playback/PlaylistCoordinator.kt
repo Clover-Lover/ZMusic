@@ -33,6 +33,10 @@ import com.kite.zmusic.data.LyricRepository
 import com.kite.zmusic.data.NcmHomeParse
 import com.kite.zmusic.data.NcmListenReporter
 import com.kite.zmusic.data.NcmUserClient
+import com.kite.zmusic.data.platform.MusicPlatform
+import com.kite.zmusic.data.platform.MusicPlatformStore
+import com.kite.zmusic.data.platform.CustomPlaySourceClient
+import com.kite.zmusic.data.platform.QishuiCatalog
 import com.kite.zmusic.data.PersonalFmModeChoice
 import com.kite.zmusic.data.PersonalFmModeStore
 import com.kite.zmusic.data.PlayUrlResolver
@@ -91,6 +95,9 @@ class PlaylistCoordinator(
     private val persistentPlaybackStore: PersistentPlaybackStore,
     private val privacyStore: PrivacyStore,
     private val userClient: NcmUserClient,
+    private val platformStore: MusicPlatformStore,
+    private val qishui: QishuiCatalog,
+    private val customPlaySource: CustomPlaySourceClient,
     private val audioOutputController: AudioOutputController,
     private val fmModeStore: PersonalFmModeStore,
     private val onClearAndStopService: (() -> Unit)? = null,
@@ -182,6 +189,8 @@ class PlaylistCoordinator(
     private var errorRetryJob: Job? = null
     @Volatile
     private var playbackClockLocked: Boolean = false
+    /** 非空时播放速度用这个值，调音面板的速度让开。 */
+    private var pluginPlaybackRate: Float? = null
     /** 一起听客人：曲末不要本机自动切歌，等远端 track 时钟。 */
     @Volatile
     private var listenFollowRemoteAdvance: Boolean = false
@@ -336,7 +345,7 @@ class PlaylistCoordinator(
             snap.currentTrack?.id?.let { songId ->
                 scope.launch {
                     val cookie = sessionRepository.session.value?.cookie.orEmpty()
-                    val pack = lyricRepository.loadBestEffort(songId, cookie)
+                    val pack = lyricRepository.loadBestEffort(songId, cookie, snap.currentTrack)
                     if (_ui.value.currentTrack?.id == songId && pack.original.isNotEmpty()) {
                         _ui.update { it.withLyricPack(pack) }
                     }
@@ -514,6 +523,10 @@ class PlaylistCoordinator(
     }
 
     fun startPersonalFm(onStarted: () -> Unit = {}) {
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            context.showIslandNotice(t("未支持"))
+            return
+        }
         fmHydrateJob?.cancel()
         scope.launch {
             val tracks = fetchPersonalFmBatch()
@@ -528,6 +541,11 @@ class PlaylistCoordinator(
     }
 
     fun applyPersonalFmMode(choice: PersonalFmModeChoice, onDone: () -> Unit = {}) {
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            context.showIslandNotice(t("未支持"))
+            onDone()
+            return
+        }
         if (choice == fmModeStore.current() && fmActive) {
             onDone()
             return
@@ -809,6 +827,16 @@ class PlaylistCoordinator(
         persistentFocus.setOverlayDuck(level)
     }
 
+    fun setUserVolume(level: Float) {
+        persistentFocus.setUserVolume(level)
+    }
+
+    /** 插件倍速盖过调音面板的速度。一起听锁速时仍保持 1。 */
+    fun setPluginPlaybackRate(rate: Float) {
+        pluginPlaybackRate = rate.coerceIn(0.1f, 3f)
+        applyTunePlaybackParameters()
+    }
+
     fun seekTo(ms: Long) {
         val target = ms.coerceAtLeast(0L)
         val from = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -912,7 +940,11 @@ class PlaylistCoordinator(
 
     private fun applyTunePlaybackParameters() {
         val prefs = tunePrefsStore.current()
-        val speed = if (playbackClockLocked) 1f else prefs.playbackSpeed()
+        val speed = when {
+            playbackClockLocked -> 1f
+            pluginPlaybackRate != null -> pluginPlaybackRate!!
+            else -> prefs.playbackSpeed()
+        }
         val pitch = if (playbackClockLocked) 1f else prefs.playbackPitch()
         val next = PlaybackParameters(speed, pitch)
         val cur = exoPlayer.playbackParameters
@@ -1231,7 +1263,7 @@ class PlaylistCoordinator(
                 coroutineScope {
                     val jobs = buildList {
                         for (t in neighbors) {
-                            add(async { lyricRepository.prefetch(t.id, cookie) })
+                            add(async { lyricRepository.prefetch(t.id, cookie, t) })
                             add(async { UrlImageCache.prefetch(context, t.coverUrl) })
                         }
                         // 当前封面也预热（通知/返回页）
@@ -1240,7 +1272,7 @@ class PlaylistCoordinator(
                         }
                         current?.let { t ->
                             if (lyricRepository.peekPack(t.id)?.translationResolved != true) {
-                                add(async { lyricRepository.prefetch(t.id, cookie) })
+                                add(async { lyricRepository.prefetch(t.id, cookie, t) })
                             }
                         }
                     }
@@ -1409,7 +1441,7 @@ class PlaylistCoordinator(
                 } else if (_ui.value.lyricLines.isEmpty() ||
                     cachedLyrics?.translationResolved != true
                 ) {
-                    val diskOrNet = lyricRepository.loadBestEffort(track.id, cookie)
+                    val diskOrNet = lyricRepository.loadBestEffort(track.id, cookie, track)
                     if (diskOrNet.original.isNotEmpty() && _ui.value.currentTrack?.id == track.id) {
                         _ui.update { it.withLyricPack(diskOrNet) }
                     }
@@ -1458,7 +1490,7 @@ class PlaylistCoordinator(
                 }
                 persistSnapshot()
                 if (localLyrics == null || localLyrics.original.isEmpty()) {
-                    loadLyricsAsync(track.id, cookie)
+                    loadLyricsAsync(track, cookie)
                 }
             } catch (e: Exception) {
                 if (_ui.value.currentTrack?.id != loadGen) return@launch
@@ -1483,6 +1515,11 @@ class PlaylistCoordinator(
 
     /** 右上角短通知 + 唤醒底部控件；3 秒后自动清除。 */
     private fun postUnplayableNotice() {
+        val track = _ui.value.currentTrack
+        Log.w(
+            "ZMusicSource",
+            "skip unplayable id=${track?.id} name=${track?.name} platform=${platformStore.current.id}",
+        )
         val token = System.currentTimeMillis()
         noticeJob?.cancel()
         _ui.update {
@@ -1575,11 +1612,11 @@ class PlaylistCoordinator(
             .build()
     }
 
-    private fun loadLyricsAsync(songId: Long, cookie: String) {
+    private fun loadLyricsAsync(track: TrackRow, cookie: String) {
         lyricJob?.cancel()
         lyricJob = scope.launch {
-            val pack = lyricRepository.loadBestEffort(songId, cookie)
-            if (_ui.value.currentTrack?.id == songId) {
+            val pack = lyricRepository.loadBestEffort(track.id, cookie, track)
+            if (_ui.value.currentTrack?.id == track.id) {
                 _ui.update { it.withLyricPack(pack) }
             }
         }
@@ -1836,6 +1873,22 @@ class PlaylistCoordinator(
         downloadAccelIndex.audioUri(track.id)?.let { return it }
         if (track.id <= 0L) return null
         if (!context.isNetworkOnline()) return null
+        if (platformStore.current == MusicPlatform.QISHUI) {
+            Log.i("ZMusicSource", "qishui play id=${track.id} name=${track.name}")
+            return runCatching { qishui.playUrl(track.id) }
+                .onFailure { Log.e("ZMusicSource", "qishui play failed id=${track.id}", it) }
+                .getOrNull()
+                .also { Log.i("ZMusicSource", "qishui result id=${track.id} empty=${it.isNullOrBlank()}") }
+        }
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            Log.i(
+                "ZMusicSource",
+                "open play platform=${platformStore.current.id} id=${track.id} name=${track.name}",
+            )
+            val url = customPlaySource.musicUrl(platformStore.current, track, audioQualityStore.current())
+            Log.i("ZMusicSource", "open result id=${track.id} empty=${url.isNullOrBlank()}")
+            return url
+        }
         val official = runCatching {
             PlayUrlResolver.resolve(
                 userClient = userClient,

@@ -1606,6 +1606,14 @@ internal fun LandscapePlayerBody(
         if (dynamicPage) {
             LandscapeDynamicStage(
                 track = track,
+                peekNext = peekNextTrack,
+                peekPrev = peekPrevTrack,
+                skipDirection = vinylSkipDir,
+                gesturesEnabled = !settingsOpen &&
+                    !lyricSelectOpen &&
+                    !lyricStyleEditorOpen &&
+                    !titleStyleEditorOpen &&
+                    !backgroundEditorOpen,
                 lines = lines,
                 lyricCompanions = lyricCompanions,
                 originalOnTop = originalOnTop,
@@ -1624,6 +1632,7 @@ internal fun LandscapePlayerBody(
                 onArtistClick = onArtistClick,
                 transportRevealT = chromeVisualT,
                 transportReserve = dynamicTransportH,
+                coverOffsetXDp = displayPrefs.dynamicCoverOffsetXDp,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -1761,6 +1770,7 @@ internal fun LandscapePlayerBody(
                         fullCover = displayPrefs.vinylFullCover,
                         centerRadiusFrac = displayPrefs.vinylCenterRadiusFrac,
                         outerScale = vinylOuterScale,
+                        showOuterPlate = displayPrefs.vinylOuterEnabled,
                         plateColors = plateForStage,
                         prevEnterSlidePx = prevEnterSlidePx,
                         suppressEnterTransition = suppressVinylEnter,
@@ -2092,6 +2102,7 @@ internal fun LandscapePlayerBody(
                 fullCover = displayPrefs.vinylFullCover,
                 centerRadiusFrac = displayPrefs.vinylCenterRadiusFrac,
                 outerScale = vinylOuterScale,
+                showOuterPlate = displayPrefs.vinylOuterEnabled,
                 // 目标尺寸来自主黑胶 bounds（已含 sizeScale / uiScale / 外圈视觉）
                 onCoverTarget = {
                     onPlayQueueIndex(flight.queueIndex)
@@ -2268,6 +2279,7 @@ internal fun LandscapePlayerBody(
                 fullCover = displayPrefs.vinylFullCover,
                 centerRadiusFrac = displayPrefs.vinylCenterRadiusFrac,
                 outerScale = vinylOuterScale,
+                showOuterPlate = displayPrefs.vinylOuterEnabled,
                 hazeState = settingsHazeState,
                 titleNameStyle = displayPrefs.titleNameStyle,
                 uiScale = uiScale,

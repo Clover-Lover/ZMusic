@@ -51,6 +51,20 @@ internal class PluginAndroidPlayer(
         return true
     }
 
+    override fun setVolume(level: Float): Boolean {
+        playback.setUserVolume(level)
+        return true
+    }
+
+    override fun volume(): Float = playback.userVolume()
+
+    override fun setPlaybackRate(rate: Float): Boolean {
+        playback.setPluginPlaybackRate(rate)
+        return true
+    }
+
+    override fun playbackRate(): Float = playback.pluginPlaybackRate()
+
     override fun setLiked(liked: Boolean): Boolean {
         val sess = session.session.value ?: return false
         if (sess.isGuest) return false

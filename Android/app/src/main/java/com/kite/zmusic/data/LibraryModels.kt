@@ -237,6 +237,14 @@ data class TrackRow(
     val durationMs: Long,
     /** 专辑封面，用于播放器与列表展示；缓存曲目可为 content:// */
     val coverUrl: String? = null,
+    /** 平台原始歌曲 id。酷我、酷狗是数字，QQ 是 songmid。 */
+    val sourceId: String? = null,
+    /** 酷狗文件 hash。 */
+    val sourceHash: String? = null,
+    /** QQ 专辑 mid。 */
+    val albumMid: String? = null,
+    /** QQ 数字歌曲 id。 */
+    val sourceSongId: Long = 0L,
     val artistRefs: List<TrackArtist> = emptyList(),
     /** 本机导出音频（MediaStore / file URI），有则播放走本地，不请求音源 */
     val localAudioUri: String? = null,
@@ -244,4 +252,11 @@ data class TrackRow(
     val localFolder: String? = null,
     val localLyricUri: String? = null,
     val localTransLyricUri: String? = null,
-)
+    /**
+     * 网易云 `fee`。`1` 为 VIP 歌曲。
+     * `0` 免费或无版权，`4` 购买专辑，`8` 非会员可听低音质。
+     */
+    val fee: Int = 0,
+) {
+    val isVipSong: Boolean get() = fee == 1
+}

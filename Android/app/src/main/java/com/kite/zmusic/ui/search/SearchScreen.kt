@@ -87,6 +87,7 @@ import com.kite.zmusic.ui.catalog.launchTrackDownload
 import com.kite.zmusic.ui.common.GlassActionSheet
 import com.kite.zmusic.ui.common.GlassAlertDialog
 import com.kite.zmusic.ui.common.GlassSheetAction
+import com.kite.zmusic.ui.common.SongTitleLine
 import com.kite.zmusic.ui.common.UrlImage
 import com.kite.zmusic.ui.chrome.chromePage
 import com.kite.zmusic.ui.icons.ZIcons
@@ -122,6 +123,8 @@ fun SearchScreen(
             app.searchHistoryRepository,
             app.searchRepository,
             app.likedPlaylistRepository,
+            app.musicPlatformStore,
+            app.openMusicCatalog,
         ),
     )
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -963,15 +966,12 @@ private fun SearchSongRow(
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = track.name,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(
-                        color = MainPalette.Ink,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                    ),
+                SongTitleLine(
+                    name = track.name,
+                    vip = track.isVipSong,
+                    color = MainPalette.Ink,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
                 )
                 Text(
                     text = track.artists,

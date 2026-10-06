@@ -53,6 +53,7 @@ fun ScoreVinylFlightLayer(
     fullCover: Boolean,
     centerRadiusFrac: Float,
     outerScale: Float,
+    showOuterPlate: Boolean = true,
     onCoverTarget: () -> Unit,
     onFinished: () -> Unit,
     modifier: Modifier = Modifier,
@@ -176,6 +177,7 @@ fun ScoreVinylFlightLayer(
                 fullCover = fullCover,
                 centerRadiusFrac = centerRadiusFrac,
                 outerScale = outerScale,
+                showOuterPlate = showOuterPlate,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -189,25 +191,28 @@ private fun FlightVinylFace(
     fullCover: Boolean,
     centerRadiusFrac: Float,
     outerScale: Float,
+    showOuterPlate: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val coverT = if (fullCover) 1f else 0f
+    val coverT = if (fullCover || !showOuterPlate) 1f else 0f
     val outer = outerScale.coerceIn(0.5f, 1.6f)
     val coverHoleFrac = (centerRadiusFrac / CoverFrac).coerceIn(0.08f, 0.95f) * (1f - coverT)
     val spindleFrac = (0.048f / outer).coerceIn(0.02f, 0.35f) * (1f - coverT)
 
     Box(modifier, contentAlignment = Alignment.Center) {
-        VinylDiscPlate(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = outer
-                    scaleY = outer
-                    transformOrigin = TransformOrigin.Center
-                },
-            spindleHoleFrac = spindleFrac,
-            colors = plateColors,
-        )
+        if (showOuterPlate) {
+            VinylDiscPlate(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = outer
+                        scaleY = outer
+                        transformOrigin = TransformOrigin.Center
+                    },
+                spindleHoleFrac = spindleFrac,
+                colors = plateColors,
+            )
+        }
         Box(
             Modifier
                 .fillMaxSize(CoverFrac)

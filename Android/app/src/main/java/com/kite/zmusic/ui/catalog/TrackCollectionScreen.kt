@@ -85,6 +85,7 @@ import com.kite.zmusic.ui.artist.ArtistMvsScreen
 import com.kite.zmusic.ui.artist.ArtistScreen
 import com.kite.zmusic.ui.common.GlassAlertDialog
 import com.kite.zmusic.ui.common.PlayingEqualizer
+import com.kite.zmusic.ui.common.SongTitleLine
 import com.kite.zmusic.ui.common.UrlImage
 import com.kite.zmusic.ui.common.ZPullRefresh
 import com.kite.zmusic.ui.icons.ZIcons
@@ -811,15 +812,12 @@ internal fun CatalogTrackRow(
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(
-                    text = track.name,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(
-                        color = if (current) MainPalette.Accent else MainPalette.Ink,
-                        fontSize = 15.sp,
-                        fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium,
-                    ),
+                SongTitleLine(
+                    name = track.name,
+                    vip = track.isVipSong,
+                    color = if (current) MainPalette.Accent else MainPalette.Ink,
+                    fontSize = 15.sp,
+                    fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium,
                 )
                 Text(
                     text = track.artists,

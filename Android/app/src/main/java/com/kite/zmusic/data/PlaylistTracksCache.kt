@@ -15,6 +15,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import com.kite.zmusic.data.platform.MusicPlatform
+import com.kite.zmusic.data.platform.MusicPlatformStore
+import com.kite.zmusic.data.platform.OpenMusicCatalog
+import com.kite.zmusic.data.platform.QishuiCatalog
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
@@ -26,6 +30,9 @@ import java.util.concurrent.ConcurrentHashMap
 class PlaylistTracksCache(
     context: Context,
     private val userClient: NcmUserClient,
+    private val platformStore: MusicPlatformStore,
+    private val qishui: QishuiCatalog,
+    private val openCatalog: OpenMusicCatalog,
 ) {
     data class Entry(
         val playlistId: Long,
@@ -58,13 +65,27 @@ class PlaylistTracksCache(
 
     fun peek(playlistId: Long): Entry? {
         if (playlistId <= 0L) return null
-        memory[playlistId]?.let { return it }
-        return loadFromDisk(playlistId)?.also { entry ->
+        memory[playlistId]?.takeIf { hasSourceIds(it) }?.let { return it }
+        return loadFromDisk(playlistId)?.takeIf { hasSourceIds(it) }?.also { entry ->
             memory[playlistId] = entry
             if (!entry.complete && entry.allIds.isNotEmpty()) {
                 pendingAllIds[playlistId] = entry.allIds
             }
         }
+    }
+
+    /** 酷我、酷狗、QQ 的旧缓存没有原始歌曲 id，不能拿来搜歌词或换播放地址。 */
+    private fun hasSourceIds(entry: Entry): Boolean {
+        val platform = platformStore.current
+        if (platform != MusicPlatform.KUWO && platform != MusicPlatform.KUGOU && platform != MusicPlatform.QQ) {
+            return true
+        }
+        return entry.tracks.any { !it.sourceId.isNullOrBlank() }
+    }
+
+    suspend fun openArtistSongs(artistId: Long): List<TrackRow>? {
+        if (platformStore.current != MusicPlatform.KUGOU || artistId <= 0L) return null
+        return withContext(Dispatchers.IO) { openCatalog.artistSongs(MusicPlatform.KUGOU, artistId) }
     }
 
     fun attachSubscribeMeta(playlistId: Long, meta: PlaylistSubscribeMeta) {
@@ -282,6 +303,36 @@ class PlaylistTracksCache(
     ): Entry = ioMutex.withLock {
         if (!force) {
             memory[playlistId]?.takeIf { it.tracks.isNotEmpty() }?.let { return@withLock it }
+        }
+        if (platformStore.current == MusicPlatform.QISHUI) {
+            val tracks = withContext(Dispatchers.IO) { qishui.playlistTracks(playlistId) }
+            val entry = Entry(
+                playlistId = playlistId,
+                title = title,
+                tracks = tracks,
+                updatedAtMs = System.currentTimeMillis(),
+                expectedCount = tracks.size,
+                complete = true,
+                allIds = tracks.map { it.id },
+            )
+            publish(entry)
+            return@withLock entry
+        }
+        if (platformStore.current != MusicPlatform.NETEASE) {
+            val tracks = withContext(Dispatchers.IO) {
+                openCatalog.playlistTracks(platformStore.current, playlistId)
+            }
+            val entry = Entry(
+                playlistId = playlistId,
+                title = title,
+                tracks = tracks,
+                updatedAtMs = System.currentTimeMillis(),
+                expectedCount = tracks.size,
+                complete = true,
+                allIds = tracks.map { it.id },
+            )
+            publish(entry)
+            return@withLock entry
         }
         val previous = memory[playlistId] ?: loadFromDisk(playlistId)
         val first = withContext(Dispatchers.IO) {

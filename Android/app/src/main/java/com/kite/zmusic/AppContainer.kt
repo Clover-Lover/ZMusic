@@ -4,6 +4,7 @@ import android.app.Application
 import com.kite.zmusic.data.AlbumCollectionRepository
 import com.kite.zmusic.data.AlbumTracksCache
 import com.kite.zmusic.data.AudioQualityStore
+import com.kite.zmusic.data.BetterNcmMarketStore
 import com.kite.zmusic.data.AudioOutputStore
 import com.kite.zmusic.data.LyricOverlayStore
 import com.kite.zmusic.data.LyricRenderStore
@@ -34,6 +35,12 @@ import com.kite.zmusic.data.PlaylistEditor
 import com.kite.zmusic.data.PlaylistTracksCache
 import com.kite.zmusic.data.SearchHistoryRepository
 import com.kite.zmusic.data.SessionRepository
+import com.kite.zmusic.data.platform.CustomPlaySourceClient
+import com.kite.zmusic.data.platform.CustomPlaySourceStore
+import com.kite.zmusic.data.platform.MusicPlatformStore
+import com.kite.zmusic.data.platform.OpenMusicCatalog
+import com.kite.zmusic.data.platform.QishuiCatalog
+import com.kite.zmusic.data.platform.QishuiSessionStore
 import com.kite.zmusic.data.SessionWarmup
 import com.kite.zmusic.data.ArtistRepository
 import com.kite.zmusic.data.CatalogRepository
@@ -81,12 +88,19 @@ class AppContainer(app: Application) {
         .build()
 
     val ncmUserClient = NcmUserClient(httpClient)
+    val musicPlatformStore = MusicPlatformStore(app)
+    val qishuiSessionStore = QishuiSessionStore(app)
+    val customPlaySourceStore = CustomPlaySourceStore(app)
+    val customPlaySourceClient = CustomPlaySourceClient(httpClient, customPlaySourceStore)
+    val qishuiCatalog = QishuiCatalog(httpClient, qishuiSessionStore, app)
+    val openMusicCatalog = OpenMusicCatalog(httpClient)
     val ncmAuthClient = NcmAuthClient(httpClient, NcmDeviceProfileStore(app))
     val xaiop = OkHttpXaiop(httpClient)
 
     val sessionRepository = SessionRepository(app)
     val communityServerStore = CommunityServerStore(app)
     val uapiProStore = UApiProStore(app)
+    val betterNcmMarketStore = BetterNcmMarketStore(app)
     val uapiProClient = UApiProClient(httpClient)
     val workshopAuthStore = com.kite.zmusic.workshop.WorkshopAuthStore(app)
     val communityLoginRepository = CommunityLoginRepository(
@@ -116,16 +130,36 @@ class AppContainer(app: Application) {
     val chromeWallpaperStore = ChromeWallpaperStore(app)
     val downloadAccelStore = DownloadAccelStore(app)
     val realtimeCacheStore = RealtimeCacheStore(app)
-    val playbackBridge = PlaybackBridge(app, sessionRepository, ncmUserClient)
+    val playbackBridge = PlaybackBridge(
+        app,
+        sessionRepository,
+        ncmUserClient,
+        musicPlatformStore,
+        qishuiCatalog,
+        openMusicCatalog,
+    )
     val likedPlaylistRepository = LikedPlaylistRepository(
         app,
         sessionRepository,
         ncmAuthClient,
         ncmUserClient,
     )
-    val homeFeedRepository = HomeFeedRepository(sessionRepository, ncmUserClient, personalFmModeStore)
-    val playlistTracksCache = PlaylistTracksCache(app, ncmUserClient)
-    val albumTracksCache = AlbumTracksCache(app)
+    val homeFeedRepository = HomeFeedRepository(
+        sessionRepository,
+        ncmUserClient,
+        personalFmModeStore,
+        musicPlatformStore,
+        qishuiCatalog,
+        openMusicCatalog,
+    )
+    val playlistTracksCache = PlaylistTracksCache(
+        app,
+        ncmUserClient,
+        musicPlatformStore,
+        qishuiCatalog,
+        openMusicCatalog,
+    )
+    val albumTracksCache = AlbumTracksCache(app, musicPlatformStore, openMusicCatalog)
     val searchHistoryRepository = SearchHistoryRepository(app)
     val playlistCollectionRepository = PlaylistCollectionRepository()
     val albumCollectionRepository = AlbumCollectionRepository()
@@ -136,6 +170,10 @@ class AppContainer(app: Application) {
         albumCollectionRepository,
         ncmAuthClient,
         ncmUserClient,
+        musicPlatformStore,
+        qishuiCatalog,
+        qishuiSessionStore,
+        openMusicCatalog,
     )
     val userSpaceBackgroundStore = UserSpaceBackgroundStore(app)
     val sessionWarmup = SessionWarmup(
@@ -189,7 +227,12 @@ class AppContainer(app: Application) {
     val mvPlayback = MvPlayback(app, sessionRepository, playbackBridge, ncmUserClient)
     val songRepository = SongRepository(ncmUserClient)
     val catalogRepository = CatalogRepository(ncmUserClient, personalFmModeStore)
-    val commentsRepository = CommentsRepository(ncmUserClient, ncmAuthClient)
+    val commentsRepository = CommentsRepository(
+        ncmUserClient,
+        ncmAuthClient,
+        musicPlatformStore,
+        openMusicCatalog,
+    ) { playbackBridge.ui.value.currentTrack }
     val searchRepository = SearchRepository(ncmUserClient)
     val cloudDiskRepository = CloudDiskRepository(
         app,
@@ -207,6 +250,7 @@ class AppContainer(app: Application) {
         likedPlaylistRepository,
     )
     val pluginDebugStore = PluginDebugStore(app)
+    val bncmBridge = com.kite.zmusic.plugin.BetterNcmAndroidBridge(app)
     val pluginEngine = PluginEngine(
         filesDir = app.filesDir,
         debugStore = pluginDebugStore,
@@ -229,6 +273,15 @@ class AppContainer(app: Application) {
             httpClient = httpClient,
             device = com.kite.zmusic.plugin.PluginAndroidDevice(app, httpClient),
         ),
+        bncmBridge = bncmBridge,
+        bncmEapi = { payload ->
+            com.kite.zmusic.plugin.BetterNcmEapi(sessionRepository, ncmUserClient).call(payload)
+        },
+        bncmLibText = { name ->
+            runCatching {
+                app.assets.open("betterncm/libs/$name").bufferedReader(Charsets.UTF_8).use { it.readText() }
+            }.getOrNull()
+        },
     )
     private val workshopHttp = httpClient.newBuilder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -242,6 +295,7 @@ class AppContainer(app: Application) {
         xaiop = xaiop,
         community = communityServerStore,
         auth = workshopAuthStore,
+        marketCacheFile = java.io.File(app.cacheDir, "workshop/betterncm-plugins.json"),
     )
     val workshopDownloader = com.kite.zmusic.workshop.WorkshopDownloader(
         http = workshopHttp,

@@ -2,7 +2,9 @@ package com.kite.zmusic.ui.player
 
 import android.os.Build
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.exponentialDecay
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -11,7 +13,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -40,12 +41,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -65,6 +68,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -73,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kite.zmusic.R
 import com.kite.zmusic.data.LrcLine
+import com.kite.zmusic.data.PlayerDisplayPrefs
 import com.kite.zmusic.data.TrackRow
 import com.kite.zmusic.i18n.t
 import com.kite.zmusic.ui.common.UrlImage
@@ -82,6 +87,7 @@ import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.roundToInt
+import kotlin.math.sign
 import kotlin.math.sin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -96,6 +102,13 @@ private val CoverShape = RoundedCornerShape(8.dp)
 private val CoverInnerShape = RoundedCornerShape(6.dp)
 
 private const val LyricFanRadius = 4
+
+private val CoverMotion = CubicBezierEasing(0.4f, 0.0f, 0.2f, 1f)
+private const val CoverNextExitMs = 920
+private const val CoverNextGrowMs = 520
+private const val CoverPrevEnterMs = 820
+private const val CoverUnderScale = 0.85f
+private const val CoverFlingVelocity = 1400f
 /** 扇形张角：邻句开头相对当前句的水平收拢，与文字朝向无关。 */
 private const val LyricFanOpenDeg = 9.0f
 private const val LyricFanXPull = 0.32f
@@ -126,20 +139,30 @@ internal fun LandscapeDynamicStage(
     showCompanionOnOthers: Boolean,
     positionMs: Long,
     durationMs: Long,
+    peekNext: TrackRow?,
+    peekPrev: TrackRow?,
+    /** 播放条等外部切歌方向；封面手势自己会先落定，避免再播一遍。 */
+    skipDirection: VinylSkipDirection,
+    gesturesEnabled: Boolean = true,
     onSkipNext: () -> Unit,
     onSkipPrev: () -> Unit,
     onSeek: (Long) -> Unit,
     onArtistClick: (() -> Unit)?,
     transportRevealT: Float = 0f,
     transportReserve: Dp = 0.dp,
+    /** 方封与歌名整列水平偏移（dp），负左正右。 */
+    coverOffsetXDp: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
-    val coverUrl = track.coverUrl
     val density = LocalDensity.current
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val cover = minOf(maxWidth * 0.202f, maxHeight * 0.362f) * 1.22f
         val leftPad = (maxWidth * 0.055f - 8.dp).coerceAtLeast(10.dp)
+        val coverShiftX = coverOffsetXDp.coerceIn(
+            PlayerDisplayPrefs.DYNAMIC_COVER_OFFSET_X_MIN,
+            PlayerDisplayPrefs.DYNAMIC_COVER_OFFSET_X_MAX,
+        ).dp
         val lyricsEndPad = maxWidth * 0.028f
         val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val lyricInset = 52.dp + navBottom
@@ -147,6 +170,13 @@ internal fun LandscapeDynamicStage(
         val lyricsLeftPx = stageWidthPx * (1f - LyricColWidthFrac)
         val revealT = transportRevealT.coerceIn(0f, 1f)
         val liftPx = with(density) { (transportReserve.toPx() * revealT) / 2f }
+        val coverExitX = with(density) {
+            (leftPad + coverShiftX.coerceAtLeast(0.dp) + cover + 36.dp).toPx()
+        }
+        val coverExitY = with(density) {
+            (maxHeight * 0.62f).toPx().coerceAtLeast((cover * 1.45f).toPx())
+        }
+        val coverEnterX = with(density) { (cover + leftPad + 12.dp).toPx() }
 
         LandscapeDynamicStageBack(
             modifier = Modifier.fillMaxSize(),
@@ -161,11 +191,19 @@ internal fun LandscapeDynamicStage(
             Modifier
                 .align(Alignment.CenterStart)
                 .padding(start = leftPad)
+                .offset(x = coverShiftX)
                 .width(cover),
         ) {
             LandscapeDynamicSquareCover(
-                coverUrl = coverUrl,
+                track = track,
+                peekNext = peekNext,
+                peekPrev = peekPrev,
                 size = cover,
+                exitXPx = coverExitX,
+                exitYPx = coverExitY,
+                enterXPx = coverEnterX,
+                skipDirection = skipDirection,
+                gesturesEnabled = gesturesEnabled,
                 onSkipNext = onSkipNext,
                 onSkipPrev = onSkipPrev,
             )
@@ -257,18 +295,449 @@ private fun LandscapeDynamicStageBack(
     )
 }
 
+private class ExitingDynamicCover(
+    val key: Long,
+    val track: TrackRow,
+    val progress: Animatable<Float, AnimationVector1D>,
+)
+
+/**
+ * 方形封面切歌：手势门槛与黑胶一致。
+ * 下一首离场沿四分之一圆弧向左下退出；入场仍是底下放大。
+ * 上一首入场仍从左侧滑入盖住当前封面。
+ */
 @Composable
 private fun LandscapeDynamicSquareCover(
-    coverUrl: String?,
+    track: TrackRow,
+    peekNext: TrackRow?,
+    peekPrev: TrackRow?,
     size: Dp,
+    exitXPx: Float,
+    exitYPx: Float,
+    enterXPx: Float,
+    skipDirection: VinylSkipDirection,
+    gesturesEnabled: Boolean,
     onSkipNext: () -> Unit,
     onSkipPrev: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
+    val exitX = exitXPx.coerceAtLeast(1f)
+    val exitY = exitYPx.coerceAtLeast(1f)
+    val slidePx = enterXPx.coerceAtLeast(1f)
+    var topTrack by remember { mutableStateOf(track) }
+    var underTrack by remember { mutableStateOf(track) }
+    var scaleHold by remember { mutableFloatStateOf(Float.NaN) }
+    var enterHold by remember { mutableFloatStateOf(Float.NaN) }
+    var settledId by remember { mutableStateOf(track.id) }
+    var showUnder by remember { mutableStateOf(false) }
+    var dragging by remember { mutableStateOf(false) }
+    var dragMode by remember { mutableStateOf<VinylSkipDirection?>(null) }
+    var followX by remember { mutableFloatStateOf(0f) }
+    var prevRevealBase by remember { mutableFloatStateOf(0f) }
+    var booted by remember { mutableStateOf(false) }
+    val pose = remember { Animatable(0f) }
+    val enterX = remember { Animatable(0f) }
+    val topScale = remember { Animatable(1f) }
+    val underScale = remember { Animatable(CoverUnderScale) }
+    val exiting = remember { mutableStateListOf<ExitingDynamicCover>() }
+    var exitSeq by remember { mutableStateOf(0L) }
+    val directionRef = rememberUpdatedState(skipDirection)
+    val peekNextRef = rememberUpdatedState(peekNext)
+    val peekPrevRef = rememberUpdatedState(peekPrev)
+    val onNextRef = rememberUpdatedState(onSkipNext)
+    val onPrevRef = rememberUpdatedState(onSkipPrev)
+    val gesturesRef = rememberUpdatedState(gesturesEnabled)
+
+    fun arcTOf(x: Float): Float = ((-x) / exitX).coerceIn(0f, 1f)
+
+    fun spawnExit(outgoing: TrackRow, fromT: Float) {
+        exitSeq += 1L
+        val layer = ExitingDynamicCover(
+            key = exitSeq,
+            track = outgoing,
+            progress = Animatable(fromT.coerceIn(0f, 1f)),
+        )
+        exiting.add(layer)
+        while (exiting.size > 4) exiting.removeAt(0)
+        scope.launch {
+            try {
+                val remain = (1f - layer.progress.value).coerceIn(0.05f, 1f)
+                layer.progress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = (CoverNextExitMs * remain).toInt().coerceIn(280, CoverNextExitMs),
+                        easing = CoverMotion,
+                    ),
+                )
+            } finally {
+                exiting.removeAll { it.key == layer.key }
+            }
+        }
+    }
+
+    fun promoteNext(incoming: TrackRow, startScale: Float) {
+        val start = startScale.coerceIn(CoverUnderScale, 1f)
+        topTrack = incoming
+        underTrack = incoming
+        settledId = incoming.id
+        showUnder = false
+        dragMode = null
+        followX = 0f
+        prevRevealBase = 0f
+        scaleHold = start
+        enterHold = Float.NaN
+        scope.launch {
+            pose.snapTo(0f)
+            enterX.snapTo(0f)
+            topScale.snapTo(start)
+            scaleHold = Float.NaN
+            topScale.animateTo(1f, tween(CoverNextGrowMs, easing = CoverMotion))
+        }
+    }
+
+    fun promotePrev(incoming: TrackRow, fromX: Float, under: TrackRow) {
+        val from = fromX.coerceIn(-slidePx, 0f)
+        underTrack = under
+        showUnder = under.id != incoming.id
+        topTrack = incoming
+        settledId = incoming.id
+        dragMode = null
+        followX = 0f
+        prevRevealBase = 0f
+        enterHold = from
+        scaleHold = 1f
+        scope.launch {
+            pose.snapTo(0f)
+            topScale.snapTo(1f)
+            scaleHold = Float.NaN
+            enterX.snapTo(from)
+            enterHold = Float.NaN
+            enterX.animateTo(0f, tween(CoverPrevEnterMs, easing = CoverMotion))
+            showUnder = false
+            underTrack = incoming
+            enterX.snapTo(0f)
+        }
+    }
+
+    LaunchedEffect(track.id) {
+        if (!booted) {
+            topTrack = track
+            underTrack = track
+            settledId = track.id
+            showUnder = false
+            booted = true
+            return@LaunchedEffect
+        }
+        if (track.id == settledId || dragging) return@LaunchedEffect
+        when (directionRef.value) {
+            VinylSkipDirection.Next -> {
+                spawnExit(topTrack, pose.value)
+                promoteNext(track, CoverUnderScale)
+            }
+            VinylSkipDirection.Previous -> {
+                val under = topTrack
+                promotePrev(track, -slidePx, under)
+            }
+        }
+    }
+
+    val commitPx = with(LocalDensity.current) { 96.dp.toPx() }
+        .coerceAtMost(exitX * 0.72f)
+        .coerceAtLeast(1f)
+    val prevCommitPx = (slidePx * 0.42f).coerceIn(commitPx.coerceAtMost(slidePx * 0.42f), slidePx)
+    val flingPx = CoverFlingVelocity
+    val arcT = if (dragging && dragMode == VinylSkipDirection.Next) {
+        arcTOf(followX)
+    } else {
+        pose.value
+    }
+    val prevShown = if (dragging && dragMode == VinylSkipDirection.Previous) {
+        (followX - prevRevealBase).coerceIn(0f, slidePx)
+    } else {
+        0f
+    }
+    val enterShown = if (!enterHold.isNaN()) enterHold else enterX.value
+    val topOffset = when {
+        dragging && dragMode == VinylSkipDirection.Next -> coverExitArc(arcT, exitX, exitY)
+        dragging && dragMode == VinylSkipDirection.Previous ->
+            Offset(-slidePx + prevShown, 0f)
+        enterShown < -0.5f -> Offset(enterShown, 0f)
+        else -> coverExitArc(pose.value, exitX, exitY)
+    }
+    val underGrow = if (dragging && dragMode == VinylSkipDirection.Next && showUnder) {
+        val p = (abs(followX) / commitPx).coerceIn(0f, 1f)
+        CoverUnderScale + (1f - CoverUnderScale) * 0.40f * p
+    } else {
+        underScale.value
+    }
+    val topScaleNow = when {
+        dragging -> 1f
+        !scaleHold.isNaN() -> scaleHold
+        else -> topScale.value
+    }
+
+    fun rubber(raw: Float): Float {
+        val lo = if (peekNextRef.value != null) -exitX else -commitPx * 0.45f
+        val hi = if (peekPrevRef.value != null) slidePx else commitPx * 0.45f
+        val x = raw.coerceIn(lo, hi)
+        return when {
+            x < 0f && peekNextRef.value == null -> x * 0.35f
+            x > 0f && peekPrevRef.value == null -> x * 0.35f
+            else -> x
+        }
+    }
+
+    fun applyDelta(delta: Float) {
+        if (!dragging) return
+        followX = rubber(followX + delta)
+        val x = followX
+        when {
+            x < -1.5f && peekNextRef.value != null -> {
+                dragMode = VinylSkipDirection.Next
+                prevRevealBase = 0f
+                if (topTrack.id != settledId) topTrack = track
+                underTrack = peekNextRef.value ?: track
+                showUnder = true
+            }
+            x > 1.5f && peekPrevRef.value != null -> {
+                if (dragMode != VinylSkipDirection.Previous) {
+                    dragMode = VinylSkipDirection.Previous
+                    prevRevealBase = x
+                    underTrack = if (topTrack.id == settledId) topTrack else track
+                    topTrack = peekPrevRef.value ?: track
+                    showUnder = true
+                }
+            }
+            dragMode == VinylSkipDirection.Previous && x > prevRevealBase -> Unit
+            dragMode == VinylSkipDirection.Next && x < 0f -> Unit
+            else -> {
+                if (dragMode == VinylSkipDirection.Previous && topTrack.id != settledId) {
+                    topTrack = track
+                }
+                dragMode = null
+                prevRevealBase = 0f
+                showUnder = false
+            }
+        }
+    }
+
+    fun beginDrag() {
+        if (topTrack.id != settledId) {
+            topTrack = track
+            underTrack = track
+            showUnder = false
+            settledId = track.id
+        }
+        followX = 0f
+        prevRevealBase = 0f
+        dragging = true
+        dragMode = null
+        scope.launch {
+            pose.snapTo(0f)
+            enterX.snapTo(0f)
+            topScale.snapTo(1f)
+        }
+    }
+
+    fun endDrag(velocity: Float) {
+        if (!dragging) return
+        val x = followX
+        val mode = dragMode
+        val reveal = if (mode == VinylSkipDirection.Previous) {
+            (x - prevRevealBase).coerceAtLeast(0f)
+        } else {
+            0f
+        }
+        val scaleAtRelease = CoverUnderScale + (1f - CoverUnderScale) * 0.40f *
+            (abs(x) / commitPx).coerceIn(0f, 1f)
+        val goNext = mode == VinylSkipDirection.Next &&
+            (x <= -commitPx || velocity <= -flingPx) &&
+            peekNextRef.value != null
+        val goPrev = mode == VinylSkipDirection.Previous &&
+            (reveal >= prevCommitPx || velocity >= flingPx) &&
+            peekPrevRef.value != null
+        when {
+            goNext -> {
+                val incoming = checkNotNull(peekNextRef.value)
+                val outgoing = topTrack
+                dragging = false
+                dragMode = null
+                showUnder = false
+                spawnExit(outgoing, arcTOf(x))
+                promoteNext(incoming, scaleAtRelease)
+                onNextRef.value.invoke()
+            }
+            goPrev -> {
+                val incoming = checkNotNull(peekPrevRef.value)
+                val under = when {
+                    showUnder && underTrack.id != incoming.id -> underTrack
+                    else -> track
+                }
+                dragging = false
+                dragMode = null
+                promotePrev(incoming, -slidePx + reveal.coerceAtMost(slidePx), under)
+                onPrevRef.value.invoke()
+            }
+            else -> {
+                val fromT = if (mode == VinylSkipDirection.Next) arcTOf(x) else 0f
+                val fromEnter = if (mode == VinylSkipDirection.Previous) {
+                    -slidePx + reveal.coerceAtMost(slidePx)
+                } else {
+                    0f
+                }
+                dragging = false
+                scope.launch {
+                    if (mode == VinylSkipDirection.Previous && topTrack.id != track.id) {
+                        enterX.snapTo(fromEnter)
+                        enterX.animateTo(
+                            -slidePx,
+                            spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
+                        )
+                        topTrack = track
+                        enterX.snapTo(0f)
+                    } else if (mode == VinylSkipDirection.Next) {
+                        pose.snapTo(fromT)
+                        pose.animateTo(
+                            0f,
+                            spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
+                        )
+                    }
+                    showUnder = false
+                    dragMode = null
+                    followX = 0f
+                    prevRevealBase = 0f
+                    if (settledId == track.id) topTrack = track
+                }
+            }
+        }
+    }
+
     Box(
         Modifier
             .width(size)
-            .aspectRatio(1f)
-            .playerExpandAnchor(PlayerExpandSlot.FullCover)
+            .aspectRatio(1f),
+    ) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .playerExpandAnchor(PlayerExpandSlot.FullCover),
+        )
+        Box(Modifier.matchParentSize()) {
+            if (showUnder) {
+                DynamicCoverFace(
+                    track = underTrack,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(0f)
+                        .graphicsLayer {
+                            val s = if (dragMode == VinylSkipDirection.Previous || enterShown < -0.5f) {
+                                1f
+                            } else {
+                                underGrow
+                            }
+                            scaleX = s
+                            scaleY = s
+                            transformOrigin = TransformOrigin.Center
+                        },
+                )
+            }
+            exiting.forEach { layer ->
+                val t = layer.progress.value
+                val at = coverExitArc(t, exitX, exitY)
+                DynamicCoverFace(
+                    track = layer.track,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(2f)
+                        .graphicsLayer {
+                            translationX = at.x
+                            translationY = at.y
+                        },
+                )
+            }
+            DynamicCoverFace(
+                track = topTrack,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(1f)
+                    .graphicsLayer {
+                        translationX = topOffset.x
+                        translationY = topOffset.y
+                        scaleX = topScaleNow
+                        scaleY = topScaleNow
+                        transformOrigin = TransformOrigin.Center
+                    },
+            )
+        }
+        val beginRef = rememberUpdatedState { beginDrag() }
+        val deltaRef = rememberUpdatedState { delta: Float -> applyDelta(delta) }
+        val endRef = rememberUpdatedState { velocity: Float -> endDrag(velocity) }
+        Box(
+            Modifier
+                .matchParentSize()
+                .pointerInput(Unit) {
+                    val touchSlop = viewConfiguration.touchSlop
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        if (!gesturesRef.value) {
+                            val pointerId = down.id
+                            while (true) {
+                                val rest = awaitPointerEvent(PointerEventPass.Main)
+                                val c = rest.changes.find { it.id == pointerId }
+                                    ?: return@awaitEachGesture
+                                if (!c.pressed) return@awaitEachGesture
+                            }
+                        }
+                        val pointerId = down.id
+                        val start = down.position
+                        var last = down.position
+                        var locked = false
+                        val tracker = VelocityTracker()
+                        tracker.addPosition(down.uptimeMillis, down.position)
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            val change = event.changes.find { it.id == pointerId } ?: break
+                            tracker.addPosition(change.uptimeMillis, change.position)
+                            if (!locked) {
+                                val dx = change.position.x - start.x
+                                val dy = change.position.y - start.y
+                                if (abs(dx) > touchSlop || abs(dy) > touchSlop) {
+                                    if (abs(dx) > abs(dy)) {
+                                        locked = true
+                                        beginRef.value.invoke()
+                                        deltaRef.value.invoke(dx - sign(dx) * touchSlop)
+                                        last = change.position
+                                        change.consume()
+                                    } else {
+                                        return@awaitEachGesture
+                                    }
+                                } else if (!change.pressed) {
+                                    return@awaitEachGesture
+                                }
+                            } else {
+                                val delta = change.position.x - last.x
+                                last = change.position
+                                change.consume()
+                                deltaRef.value.invoke(delta)
+                                if (!change.pressed) {
+                                    endRef.value.invoke(tracker.calculateVelocity().x)
+                                    return@awaitEachGesture
+                                }
+                            }
+                        }
+                    }
+                },
+        )
+    }
+}
+
+@Composable
+private fun DynamicCoverFace(
+    track: TrackRow,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
             .playerExpandHideFull()
             .shadow(
                 elevation = 8.dp,
@@ -278,24 +747,7 @@ private fun LandscapeDynamicSquareCover(
             )
             .background(CoverFrame, CoverShape)
             .clip(CoverShape)
-            .padding(5.dp)
-            .pointerInput(onSkipNext, onSkipPrev) {
-                var total = 0f
-                val threshold = 64.dp.toPx()
-                detectHorizontalDragGestures(
-                    onDragStart = { total = 0f },
-                    onHorizontalDrag = { change, amount ->
-                        change.consume()
-                        total += amount
-                    },
-                    onDragEnd = {
-                        when {
-                            total < -threshold -> onSkipNext()
-                            total > threshold -> onSkipPrev()
-                        }
-                    },
-                )
-            },
+            .padding(5.dp),
     ) {
         Box(
             Modifier
@@ -303,7 +755,7 @@ private fun LandscapeDynamicSquareCover(
                 .clip(CoverInnerShape),
         ) {
             UrlImage(
-                url = coverUrl,
+                url = track.coverUrl,
                 contentDescription = t("封面"),
                 contentScale = ContentScale.Crop,
                 showPlaceholder = true,
@@ -335,6 +787,15 @@ private fun LandscapeDynamicSquareCover(
             )
         }
     }
+}
+
+/** 四分之一圆：先向左、再弯到左下，终点完全离开封面槽。 */
+private fun coverExitArc(t: Float, exitX: Float, exitY: Float): Offset {
+    val a = t.coerceIn(0f, 1f) * (Math.PI.toFloat() / 2f)
+    return Offset(
+        x = -exitX * sin(a),
+        y = exitY * (1f - cos(a)),
+    )
 }
 
 @Composable
@@ -652,8 +1113,7 @@ private fun LandscapeDynamicLyricsFan(
                     Modifier
                         .align(Alignment.CenterStart)
                         .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
-                        .zIndex(LyricFanRadius + 1f - absD)
-                        .graphicsLayer { clip = false },
+                        .zIndex(LyricFanRadius + 1f - absD),
                 ) {
                     LandscapeDynamicFanLine(
                         text = lines[i].text,
@@ -713,25 +1173,49 @@ private fun LandscapeDynamicFanLine(
         isBrowseCenter -> FontWeight.SemiBold
         else -> FontWeight.Normal
     }
-    val textBlur = if (blurDp > 0.dp && Build.VERSION.SDK_INT >= 31) {
-        Modifier
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .blur(blurDp, BlurredEdgeTreatment.Unbounded)
-    } else {
-        Modifier
-    }
+    val stageBlur = blurDp > 0.dp && Build.VERSION.SDK_INT >= 31
+    // 模糊半径约 3 倍才落到全透明；先垫出透明边，晕开才能渗进歌词周围，而不是切在字形上。
+    val bleed = if (stageBlur) blurDp * 3f else 0.dp
 
     Column(
         modifier
             .wrapContentWidth(Alignment.Start)
+            .then(
+                if (stageBlur) {
+                    Modifier.lyricBlurBleed(bleed)
+                } else {
+                    Modifier
+                },
+            )
             .graphicsLayer {
                 clip = false
                 cameraDistance = 16f * density
-                transformOrigin = TransformOrigin(0f, 0.5f)
+                val bleedPx = bleed.toPx()
+                transformOrigin = if (stageBlur && size.width > 0f) {
+                    TransformOrigin(
+                        (bleedPx / size.width).coerceIn(0f, 1f),
+                        0.5f,
+                    )
+                } else {
+                    TransformOrigin(0f, 0.5f)
+                }
                 rotationX = offset * LyricTextRotXDeg
                 rotationZ = offset * LyricTextRotZDeg
                 this.alpha = alpha
             }
+            .then(
+                if (stageBlur) {
+                    Modifier
+                        .graphicsLayer {
+                            clip = false
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                        .blur(blurDp, BlurredEdgeTreatment.Unbounded)
+                        .padding(bleed)
+                } else {
+                    Modifier
+                },
+            )
             .padding(vertical = if (focused) 3.dp else 2.dp),
     ) {
         val main = @Composable {
@@ -746,7 +1230,6 @@ private fun LandscapeDynamicFanLine(
                 ),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = textBlur,
             )
         }
         val sub = @Composable {
@@ -762,7 +1245,6 @@ private fun LandscapeDynamicFanLine(
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = textBlur,
                 )
             }
         }
@@ -773,6 +1255,32 @@ private fun LandscapeDynamicFanLine(
             sub()
             main()
         }
+    }
+}
+
+/**
+ * 布局仍按歌词本体占位，绘制时向四周伸出 [bleed]，给模糊留出衰减空间。
+ */
+private fun Modifier.lyricBlurBleed(bleed: Dp): Modifier = layout { measurable, constraints ->
+    val bleedPx = bleed.roundToPx()
+    val expanded = constraints.copy(
+        maxWidth = if (constraints.hasBoundedWidth) {
+            constraints.maxWidth + bleedPx * 2
+        } else {
+            constraints.maxWidth
+        },
+        maxHeight = if (constraints.hasBoundedHeight) {
+            constraints.maxHeight + bleedPx * 2
+        } else {
+            constraints.maxHeight
+        },
+    )
+    val placeable = measurable.measure(expanded)
+    layout(
+        (placeable.width - bleedPx * 2).coerceAtLeast(0),
+        (placeable.height - bleedPx * 2).coerceAtLeast(0),
+    ) {
+        placeable.place(-bleedPx, -bleedPx)
     }
 }
 

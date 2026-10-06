@@ -78,7 +78,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.kite.zmusic.R
+import com.kite.zmusic.data.platform.MusicPlatform
 import com.kite.zmusic.ui.common.GlassAlertDialog
+import com.kite.zmusic.ui.settings.PlatformMark
 import com.kite.zmusic.ui.icons.ZIconSize
 import com.kite.zmusic.ui.icons.ZIcons
 import com.kite.zmusic.ui.theme.MainPalette
@@ -127,6 +129,9 @@ internal fun LoginPortraitHost(
     resumeSms: Boolean,
     onResumeSmsConsumed: () -> Unit,
     err: String?,
+    platform: MusicPlatform,
+    onSelectPlatform: (MusicPlatform) -> Unit,
+    qrExternal: LoginQrExternal?,
 ) {
     var step by remember { mutableStateOf(PortraitStep.Landing) }
     var agreed by remember { mutableStateOf(false) }
@@ -177,6 +182,13 @@ internal fun LoginPortraitHost(
         onResumeSmsConsumed()
     }
 
+    LaunchedEffect(platform) {
+        if (platform != MusicPlatform.NETEASE && step != PortraitStep.Landing && step != PortraitStep.Qr) {
+            step = PortraitStep.Landing
+            smsCodeStage = false
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -201,6 +213,9 @@ internal fun LoginPortraitHost(
             ) { current ->
                 when (current) {
                     PortraitStep.Landing -> LandingPane(
+                        platform = platform,
+                        onSelectPlatform = onSelectPlatform,
+                        accountLogin = platform == MusicPlatform.NETEASE,
                         onPhone = { guarded { go(PortraitStep.Sms, LoginMethod.Sms) } },
                         onQr = { guarded { go(PortraitStep.Qr, LoginMethod.Qr) } },
                         onPassword = { guarded { go(PortraitStep.PhonePwd, LoginMethod.PhonePwd) } },
@@ -228,6 +243,7 @@ internal fun LoginPortraitHost(
                         vm = vm,
                         err = err,
                         onBack = { step = PortraitStep.Landing },
+                        external = qrExternal,
                     )
                     PortraitStep.PhonePwd -> LoginPasswordPane(
                         vm = vm,
@@ -294,6 +310,9 @@ internal fun LoginLightSystemBars() {
 
 @Composable
 private fun LandingPane(
+    platform: MusicPlatform,
+    onSelectPlatform: (MusicPlatform) -> Unit,
+    accountLogin: Boolean,
     onPhone: () -> Unit,
     onQr: () -> Unit,
     onPassword: () -> Unit,
@@ -341,12 +360,15 @@ private fun LandingPane(
                     letterSpacing = 0.2.sp,
                 ),
             )
+            Spacer(Modifier.height(16.dp))
+            LoginPlatformRow(selected = platform, onSelect = onSelectPlatform)
         }
 
         Spacer(Modifier.weight(1f))
 
         CloudPillButton(
             text = t("手机号登录"),
+            enabled = accountLogin,
             onClick = onPhone,
         )
         Spacer(Modifier.height(16.dp))
@@ -371,8 +393,21 @@ private fun LandingPane(
             )
         }
 
+        if (!accountLogin) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = t("此平台仅支持扫码登录"),
+                modifier = Modifier.fillMaxWidth(),
+                style = TextStyle(
+                    color = InkHint,
+                    fontSize = 12.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                ),
+            )
+        }
+
         Spacer(Modifier.height(28.dp))
-        OtherMethodsRow(onPassword = onPassword, onEmail = onEmail)
+        OtherMethodsRow(onPassword = onPassword, onEmail = onEmail, enabled = accountLogin)
 
         Spacer(Modifier.height(28.dp))
         Row(
@@ -390,13 +425,14 @@ private fun LandingPane(
                 text = t("注册"),
                 modifier = Modifier
                     .clickable(
+                        enabled = accountLogin,
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = onRegister,
                     )
                     .padding(horizontal = 4.dp, vertical = 8.dp),
                 style = TextStyle(
-                    color = CloudRed,
+                    color = if (accountLogin) CloudRed else InkHint,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                 ),
@@ -532,18 +568,22 @@ internal fun LoginQrPane(
     err: String?,
     onBack: () -> Unit,
     wide: Boolean = false,
+    external: LoginQrExternal? = null,
 ) {
-    val b64 = vm.qrImageBase64
-    val hint = vm.qrHint
-    val expired = I18n.sourceOf(hint).contains("过期")
-    val bmp = rememberQrBitmap(b64)
+    val b64 = if (external == null) vm.qrImageBase64 else null
+    val hint = external?.hint ?: vm.qrHint
+    val expired = I18n.sourceOf(hint).let { it.contains("过期") || it.contains("失效") }
+    val bmp = external?.image ?: rememberQrBitmap(b64)
+    val refresh = external?.onRefresh ?: { vm.loadQrSession() }
+    val caption = external?.caption ?: t("打开网易云音乐 App 扫一扫登录")
+    val shownErr = if (external == null) err else null
     val qrCard = @Composable {
         Box(
             Modifier
                 .size(if (wide) 200.dp else 220.dp)
                 .background(PageSoft, RoundedCornerShape(12.dp))
                 .border(1.dp, Hairline, RoundedCornerShape(12.dp))
-                .clickable(enabled = expired || bmp == null, onClick = { vm.loadQrSession() }),
+                .clickable(enabled = expired || bmp == null, onClick = refresh),
             contentAlignment = Alignment.Center,
         ) {
             if (bmp != null && !expired) {
@@ -574,7 +614,7 @@ internal fun LoginQrPane(
     val qrCopy = @Composable {
         Column(horizontalAlignment = if (wide) Alignment.Start else Alignment.CenterHorizontally) {
             Text(
-                text = t("打开网易云音乐 App 扫一扫登录"),
+                text = caption,
                 style = TextStyle(
                     color = Ink,
                     fontSize = 15.sp,
@@ -586,9 +626,9 @@ internal fun LoginQrPane(
                 text = hint.ifEmpty { t("等待扫描…") },
                 style = TextStyle(color = InkSecondary, fontSize = 13.sp),
             )
-            LoginErrorLine(err, vm::dismissError)
+            if (external == null) LoginErrorLine(shownErr, vm::dismissError)
             Spacer(Modifier.height(20.dp))
-            TextLink(t("刷新二维码")) { vm.loadQrSession() }
+            TextLink(t("刷新二维码")) { refresh() }
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -777,6 +817,7 @@ internal fun LoginDrillTopBar(
 internal fun OtherMethodsRow(
     onPassword: () -> Unit,
     onEmail: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(
@@ -803,8 +844,8 @@ internal fun OtherMethodsRow(
         }
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(36.dp)) {
-            RoundMethod(label = t("密码"), onClick = onPassword) { LockGlyph() }
-            RoundMethod(label = t("邮箱"), onClick = onEmail) { EnvelopeGlyph() }
+            RoundMethod(label = t("密码"), onClick = onPassword, enabled = enabled) { LockGlyph() }
+            RoundMethod(label = t("邮箱"), onClick = onEmail, enabled = enabled) { EnvelopeGlyph() }
         }
     }
 }
@@ -813,15 +854,20 @@ internal fun OtherMethodsRow(
 private fun RoundMethod(
     label: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
     icon: @Composable () -> Unit,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.graphicsLayer { alpha = if (enabled) 1f else 0.38f },
+    ) {
         Box(
             Modifier
                 .size(48.dp)
                 .border(1.dp, Hairline, CircleShape)
                 .clip(CircleShape)
                 .clickable(
+                    enabled = enabled,
                     interactionSource = remember { MutableInteractionSource() },
                     indication = ripple(bounded = true, color = CloudRed.copy(alpha = 0.16f)),
                     onClick = onClick,
@@ -830,6 +876,32 @@ private fun RoundMethod(
         ) { icon() }
         Spacer(Modifier.height(8.dp))
         Text(label, style = TextStyle(color = InkSecondary, fontSize = 12.sp))
+    }
+}
+
+@Composable
+internal fun LoginPlatformRow(
+    selected: MusicPlatform,
+    onSelect: (MusicPlatform) -> Unit,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        MusicPlatform.entries.forEach { item ->
+            val on = item == selected
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .border(if (on) 2.dp else 1.dp, if (on) CloudRed else Hairline, CircleShape)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onSelect(item) },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                PlatformMark(item, Modifier.size(26.dp))
+            }
+        }
     }
 }
 

@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kite.zmusic.R
+import com.kite.zmusic.data.platform.MusicPlatform
 import com.kite.zmusic.ui.theme.MainPalette
 import com.kite.zmusic.i18n.t
 
@@ -59,6 +60,7 @@ private val Page get() = MainPalette.Surface
 private val PageSoft get() = MainPalette.Page
 private val Ink get() = MainPalette.Ink
 private val InkSecondary get() = MainPalette.Secondary
+private val InkHint get() = MainPalette.Hint
 private val CloudRed get() = MainPalette.Accent
 private val Hairline get() = MainPalette.Hairline
 
@@ -94,6 +96,9 @@ internal fun LoginLandscapeHost(
     resumeSms: Boolean,
     onResumeSmsConsumed: () -> Unit,
     err: String?,
+    platform: MusicPlatform,
+    onSelectPlatform: (MusicPlatform) -> Unit,
+    qrExternal: LoginQrExternal?,
 ) {
     var step by remember { mutableStateOf(LandscapeStep.Landing) }
     var agreed by remember { mutableStateOf(false) }
@@ -145,6 +150,13 @@ internal fun LoginLandscapeHost(
         onResumeSmsConsumed()
     }
 
+    LaunchedEffect(platform) {
+        if (platform != MusicPlatform.NETEASE && step != LandscapeStep.Landing && step != LandscapeStep.Qr) {
+            step = LandscapeStep.Landing
+            smsCodeStage = false
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -162,10 +174,10 @@ internal fun LoginLandscapeHost(
                     modifier = Modifier
                         .fillMaxHeight()
                         .weight(0.38f),
-                    caption = if (registerOpen) {
-                        t("注册仅用于在 ZMusic 内登录，账号受网易云服务约束。")
-                    } else {
-                        t("登录网易云账号，同步收藏与歌单")
+                    caption = when {
+                        registerOpen -> t("注册仅用于在 ZMusic 内登录，账号受网易云服务约束。")
+                        platform == MusicPlatform.QISHUI -> t("登录汽水音乐，同步歌单")
+                        else -> t("登录网易云账号，同步收藏与歌单")
                     },
                 )
                 Box(
@@ -198,6 +210,9 @@ internal fun LoginLandscapeHost(
                             )
                         } else when (current.step) {
                             LandscapeStep.Landing -> LandscapeLandingPane(
+                                platform = platform,
+                                onSelectPlatform = onSelectPlatform,
+                                accountLogin = platform == MusicPlatform.NETEASE,
                                 onPhone = { guarded { go(LandscapeStep.Sms, LoginMethod.Sms) } },
                                 onQr = { guarded { go(LandscapeStep.Qr, LoginMethod.Qr) } },
                                 onPassword = { guarded { go(LandscapeStep.PhonePwd, LoginMethod.PhonePwd) } },
@@ -226,6 +241,7 @@ internal fun LoginLandscapeHost(
                                 err = err,
                                 onBack = { step = LandscapeStep.Landing },
                                 wide = wideQr,
+                                external = qrExternal,
                             )
                             LandscapeStep.PhonePwd -> LoginPasswordPane(
                                 vm = vm,
@@ -339,6 +355,9 @@ internal fun LoginBrandRail(
 
 @Composable
 private fun LandscapeLandingPane(
+    platform: MusicPlatform,
+    onSelectPlatform: (MusicPlatform) -> Unit,
+    accountLogin: Boolean,
     onPhone: () -> Unit,
     onQr: () -> Unit,
     onPassword: () -> Unit,
@@ -372,20 +391,29 @@ private fun LandscapeLandingPane(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = t("使用网易云账号继续"),
+                text = if (platform == MusicPlatform.QISHUI) t("使用汽水音乐账号继续") else t("使用网易云账号继续"),
                 style = TextStyle(
                     color = InkSecondary,
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center,
                 ),
             )
-            Spacer(Modifier.height(22.dp))
-            CloudPillButton(text = t("手机号登录"), onClick = onPhone)
+            Spacer(Modifier.height(14.dp))
+            LoginPlatformRow(selected = platform, onSelect = onSelectPlatform)
+            Spacer(Modifier.height(18.dp))
+            CloudPillButton(text = t("手机号登录"), enabled = accountLogin, onClick = onPhone)
             Spacer(Modifier.height(12.dp))
             CloudOutlinePillButton(text = t("扫码登录"), onClick = onQr)
+            if (!accountLogin) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = t("此平台仅支持扫码登录"),
+                    style = TextStyle(color = InkHint, fontSize = 12.sp, textAlign = TextAlign.Center),
+                )
+            }
             Spacer(Modifier.height(18.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                LandscapeTextAction(t("密码登录"), onClick = onPassword)
+                LandscapeTextAction(t("密码登录"), enabled = accountLogin, onClick = onPassword)
                 Box(
                     Modifier
                         .padding(horizontal = 14.dp)
@@ -393,7 +421,7 @@ private fun LandscapeLandingPane(
                         .height(12.dp)
                         .background(Hairline),
                 )
-                LandscapeTextAction(t("邮箱登录"), onClick = onEmail)
+                LandscapeTextAction(t("邮箱登录"), enabled = accountLogin, onClick = onEmail)
             }
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -405,13 +433,14 @@ private fun LandscapeLandingPane(
                     text = t("注册"),
                     modifier = Modifier
                         .clickable(
+                            enabled = accountLogin,
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = onRegister,
                         )
                         .padding(horizontal = 4.dp, vertical = 6.dp),
                     style = TextStyle(
-                        color = CloudRed,
+                        color = if (accountLogin) CloudRed else InkHint,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                     ),
@@ -430,18 +459,19 @@ private fun LandscapeLandingPane(
 }
 
 @Composable
-private fun LandscapeTextAction(text: String, onClick: () -> Unit) {
+private fun LandscapeTextAction(text: String, onClick: () -> Unit, enabled: Boolean = true) {
     Text(
         text = text,
         modifier = Modifier
             .clickable(
+                enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick,
             )
             .padding(vertical = 6.dp),
         style = TextStyle(
-            color = Ink,
+            color = if (enabled) Ink else InkHint,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
         ),

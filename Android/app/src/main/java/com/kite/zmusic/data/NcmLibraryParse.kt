@@ -559,7 +559,7 @@ internal object NcmLibraryParse {
             val t = tracks.optJSONObject(i) ?: continue
             parseTrackObject(t)?.let { out.add(it) }
         }
-        return out
+        return withPrivilegeFees(out, json, pl)
     }
 
     fun trackIdsFromPlaylistDetail(json: JSONObject): List<Long> {
@@ -591,12 +591,13 @@ internal object NcmLibraryParse {
             ?: json.optJSONObject("data")?.optJSONArray("songs")
             ?: json.optJSONArray("tracks")
             ?: return emptyList()
-        return buildList {
+        val rows = buildList {
             for (i in 0 until songs.length()) {
                 val t = songs.optJSONObject(i) ?: continue
                 parseTrackObject(t)?.let { add(it) }
             }
         }
+        return withPrivilegeFees(rows, json, json.optJSONObject("data"))
     }
 
     private fun parseTrackObject(t: JSONObject): TrackRow? = trackFromSongObject(t)
@@ -632,7 +633,39 @@ internal object NcmLibraryParse {
             durationMs = dt,
             coverUrl = cover,
             artistRefs = artistRefs,
+            fee = songFee(t),
         )
+    }
+
+    /** 歌曲对象上的 `fee`；缺失时读嵌套 `privilege.fee`。 */
+    fun songFee(t: JSONObject): Int {
+        if (t.has("fee") && !t.isNull("fee")) return t.optInt("fee", 0)
+        val privilege = t.optJSONObject("privilege") ?: return 0
+        if (privilege.has("fee") && !privilege.isNull("fee")) return privilege.optInt("fee", 0)
+        return 0
+    }
+
+    private fun withPrivilegeFees(rows: List<TrackRow>, vararg holders: JSONObject?): List<TrackRow> {
+        if (rows.isEmpty()) return rows
+        val fees = LinkedHashMap<Long, Int>()
+        for (holder in holders) {
+            collectPrivilegeFees(holder?.optJSONArray("privileges"), fees)
+        }
+        if (fees.isEmpty()) return rows
+        return rows.map { row ->
+            val fee = fees[row.id] ?: return@map row
+            if (fee == row.fee) row else row.copy(fee = fee)
+        }
+    }
+
+    private fun collectPrivilegeFees(arr: JSONArray?, into: MutableMap<Long, Int>) {
+        if (arr == null) return
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val id = o.optLong("id", 0L)
+            if (id <= 0L || !o.has("fee") || o.isNull("fee")) continue
+            into[id] = o.optInt("fee", 0)
+        }
     }
 
     fun artistRefsFromArray(ar: JSONArray): List<TrackArtist> = buildList {
@@ -652,6 +685,10 @@ internal object NcmLibraryParse {
             .put("album", t.album ?: "")
             .put("durationMs", t.durationMs)
             .put("coverUrl", t.coverUrl ?: "")
+        t.sourceId?.takeIf { it.isNotBlank() }?.let { o.put("sourceId", it) }
+        t.sourceHash?.takeIf { it.isNotBlank() }?.let { o.put("sourceHash", it) }
+        t.albumMid?.takeIf { it.isNotBlank() }?.let { o.put("albumMid", it) }
+        if (t.sourceSongId > 0L) o.put("sourceSongId", t.sourceSongId)
         if (t.artistRefs.isNotEmpty()) {
             val arr = JSONArray()
             t.artistRefs.forEach { a ->
@@ -663,6 +700,7 @@ internal object NcmLibraryParse {
         t.localFolder?.takeIf { it.isNotBlank() }?.let { o.put("localFolder", it) }
         t.localLyricUri?.takeIf { it.isNotBlank() }?.let { o.put("localLyricUri", it) }
         t.localTransLyricUri?.takeIf { it.isNotBlank() }?.let { o.put("localTransLyricUri", it) }
+        if (t.fee != 0) o.put("fee", t.fee)
         return o
     }
 
@@ -678,13 +716,25 @@ internal object NcmLibraryParse {
             album = o.optString("album", "").takeIf { it.isNotBlank() },
             durationMs = o.optLong("durationMs", 0L),
             coverUrl = o.optString("coverUrl", "").takeIf { it.isNotBlank() },
+            sourceId = o.optString("sourceId", "").takeIf { it.isNotBlank() },
+            sourceHash = o.optString("sourceHash", "").takeIf { it.isNotBlank() },
+            albumMid = o.optString("albumMid", "").takeIf { it.isNotBlank() },
+            sourceSongId = o.optLong("sourceSongId", 0L),
             artistRefs = refs,
             localAudioUri = o.optString("localAudioUri", "").takeIf { it.isNotBlank() },
             localFolder = o.optString("localFolder", "").takeIf { it.isNotBlank() },
             localLyricUri = o.optString("localLyricUri", "").takeIf { it.isNotBlank() },
             localTransLyricUri = o.optString("localTransLyricUri", "").takeIf { it.isNotBlank() },
+            fee = o.optInt("fee", 0),
         )
     }
+
+    private fun mergeSource(base: TrackRow, extra: TrackRow): TrackRow = base.copy(
+        sourceId = base.sourceId?.takeIf { it.isNotBlank() } ?: extra.sourceId,
+        sourceHash = base.sourceHash?.takeIf { it.isNotBlank() } ?: extra.sourceHash,
+        albumMid = base.albumMid?.takeIf { it.isNotBlank() } ?: extra.albumMid,
+        sourceSongId = base.sourceSongId.takeIf { it > 0L } ?: extra.sourceSongId,
+    )
 
     fun preferExistingCover(old: TrackRow?, incoming: TrackRow): TrackRow {
         if (old == null) return incoming
@@ -695,17 +745,21 @@ internal object NcmLibraryParse {
             incoming.album == old.album &&
             incoming.durationMs == old.durationMs &&
             cover == old.coverUrl &&
-            incoming.artistRefs == old.artistRefs
+            incoming.artistRefs == old.artistRefs &&
+            incoming.fee == old.fee
         ) {
-            return old
+            return mergeSource(old, incoming)
         }
-        return incoming.copy(
-            name = incoming.name.ifBlank { old.name },
-            artists = if (incoming.artists == "—" && old.artists != "—") old.artists else incoming.artists,
-            album = incoming.album ?: old.album,
-            durationMs = incoming.durationMs.takeIf { it > 0L } ?: old.durationMs,
-            coverUrl = cover,
-            artistRefs = incoming.artistRefs.ifEmpty { old.artistRefs },
+        return mergeSource(
+            incoming.copy(
+                name = incoming.name.ifBlank { old.name },
+                artists = if (incoming.artists == "—" && old.artists != "—") old.artists else incoming.artists,
+                album = incoming.album ?: old.album,
+                durationMs = incoming.durationMs.takeIf { it > 0L } ?: old.durationMs,
+                coverUrl = cover,
+                artistRefs = incoming.artistRefs.ifEmpty { old.artistRefs },
+            ),
+            old,
         )
     }
 

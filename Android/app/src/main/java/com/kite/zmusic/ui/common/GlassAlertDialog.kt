@@ -434,30 +434,33 @@ fun GlassPromptField(
     singleLine: Boolean = true,
     minLines: Int = 1,
 ) {
+    val fieldStyle = TextStyle(
+        color = MainPalette.Ink,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Medium,
+        lineHeight = 22.sp,
+    )
     BasicTextField(
         value = value,
         onValueChange = { onValueChange(it.take(maxLength)) },
         singleLine = singleLine,
         minLines = if (singleLine) 1 else minLines.coerceAtLeast(2),
         keyboardOptions = keyboardOptions,
-        textStyle = TextStyle(
-            color = MainPalette.Ink,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-        ),
+        textStyle = fieldStyle,
         cursorBrush = SolidColor(MainPalette.Accent),
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MainPalette.Card)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .background(MainPalette.Card),
         decorationBox = { inner ->
-            Box {
+            Box(
+                Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
                 if (value.isEmpty()) {
                     Text(
                         text = placeholder,
-                        color = MainPalette.Hint,
-                        fontSize = 16.sp,
+                        style = fieldStyle.copy(color = MainPalette.Hint),
                     )
                 }
                 inner()

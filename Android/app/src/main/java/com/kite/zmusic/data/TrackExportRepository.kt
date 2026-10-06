@@ -158,6 +158,7 @@ class TrackExportRepository(
                 .put("artists", track.artists)
                 .put("album", track.album ?: JSONObject.NULL)
                 .put("durationMs", track.durationMs)
+                .put("fee", track.fee)
                 .put("quality", options.quality.level)
                 .put("source", "ncm")
                 .put("folder", folder)
@@ -220,6 +221,7 @@ class TrackExportRepository(
                 localFolder = folder.key,
                 localLyricUri = meta.lyricsFile?.let { folder.file(it)?.toString() },
                 localTransLyricUri = meta.lyricsTranslatedFile?.let { folder.file(it)?.toString() },
+                fee = meta.fee,
             ),
         )
     }
